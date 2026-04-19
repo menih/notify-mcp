@@ -80,11 +80,7 @@ function showGmailSetup(email) {
   $("gmail-client-id").value = email.clientId ?? "";
   $("gmail-client-secret").value = email.clientSecret ?? "";
   $("gmail-to").value = email.to ?? "";
-  if (email.clientId) {
-    $("gmail-guide").removeAttribute("open");
-  } else {
-    $("gmail-guide").setAttribute("open", "");
-  }
+  $("gmail-guide").removeAttribute("open");
   checkGcloud();
 }
 
@@ -188,9 +184,9 @@ function renderGcloudPanel(status) {
   if (!status.installed) {
     row.innerHTML = `
       <span class="dot dot-warn"></span>
-      <span class="status-text">gcloud CLI not installed —
-        <a href="https://cloud.google.com/sdk/docs/install" target="_blank">install it</a>
-        to auto-login, or enter credentials manually below.
+      <span class="status-text">gcloud not installed —
+        <code class="cp" onclick="copyText(this)" style="font-size:11px">brew install --cask google-cloud-sdk</code>
+        then refresh
       </span>`;
     return;
   }

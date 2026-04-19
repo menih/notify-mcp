@@ -214,7 +214,7 @@ app.get("/api/gcloud/login", (req, res) => {
 
   const status = gcloudStatus();
   if (!status.installed) {
-    send("error", "gcloud CLI not found. Install it from https://cloud.google.com/sdk/docs/install");
+    send("error", "gcloud not found. Install: brew install --cask google-cloud-sdk");
     res.end();
     return;
   }

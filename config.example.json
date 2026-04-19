@@ -1,0 +1,26 @@
+{
+  "desktop": {
+    "enabled": true
+  },
+  "whatsapp": {
+    "enabled": true,
+    "phone": "+1234567890",
+    "apikey": "YOUR_CALLMEBOT_APIKEY"
+  },
+  "sms": {
+    "enabled": true,
+    "accountSid": "YOUR_TWILIO_ACCOUNT_SID",
+    "authToken": "YOUR_TWILIO_AUTH_TOKEN",
+    "from": "+1YOUR_TWILIO_NUMBER",
+    "to": "+1YOUR_PERSONAL_NUMBER"
+  },
+  "email": {
+    "enabled": true,
+    "host": "smtp.gmail.com",
+    "port": 587,
+    "secure": false,
+    "user": "menihillel@gmail.com",
+    "pass": "YOUR_GMAIL_APP_PASSWORD",
+    "to": "menihillel@gmail.com"
+  }
+}

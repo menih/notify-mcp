@@ -1,0 +1,32 @@
+{
+  "name": "notify-mcp",
+  "version": "1.0.0",
+  "description": "Multi-channel notification MCP server: desktop, WhatsApp, SMS, email",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc && tsc -p ui/tsconfig.json",
+    "build:mcp": "tsc",
+    "build:ui": "tsc -p ui/tsconfig.json",
+    "start": "node dist/index.js",
+    "ui": "npm run build:ui && node dist/ui/server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "express": "^4.19.2",
+    "googleapis": "^144.0.0",
+    "node-notifier": "^10.0.1",
+    "nodemailer": "^6.9.9",
+    "open": "^10.1.0",
+    "twilio": "^5.3.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.0.0",
+    "@types/node-notifier": "^8.0.5",
+    "@types/nodemailer": "^6.4.14",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  }
+}

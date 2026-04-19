@@ -1,0 +1,288 @@
+// ── State ─────────────────────────────────────────────────────────────────
+
+let config = {};
+const dirty = new Set();
+
+// ── Bootstrap ─────────────────────────────────────────────────────────────
+
+async function init() {
+  handleUrlParams();
+  await loadConfig();
+  renderOsHint();
+}
+
+function handleUrlParams() {
+  const params = new URLSearchParams(location.search);
+  if (params.has("success")) {
+    const msg = params.get("success") === "gmail_connected"
+      ? "Gmail connected successfully!"
+      : "Success!";
+    toast(msg, "ok");
+  }
+  if (params.has("error")) {
+    toast("Error: " + decodeURIComponent(params.get("error")), "error");
+  }
+  if (params.toString()) {
+    history.replaceState({}, "", location.pathname);
+  }
+}
+
+async function loadConfig() {
+  try {
+    const res = await fetch("/api/config");
+    config = await res.json();
+    populateForm();
+    updateBadges();
+  } catch (e) {
+    toast("Failed to load config: " + e, "error");
+  }
+}
+
+// ── Populate form from config ─────────────────────────────────────────────
+
+function populateForm() {
+  // Desktop
+  $("desktop-enabled").checked = !!config.desktop?.enabled;
+
+  // Email / Gmail
+  const email = config.email ?? {};
+  if (email.connectedEmail) {
+    showGmailConnected(email.connectedEmail, email.to);
+  } else {
+    showGmailSetup(email);
+  }
+
+  // WhatsApp
+  const wa = config.whatsapp ?? {};
+  $("whatsapp-enabled").checked = !!wa.enabled;
+  $("whatsapp-phone").value = wa.phone ?? "";
+  $("whatsapp-apikey").value = wa.apikey ?? "";
+
+  // SMS
+  const sms = config.sms ?? {};
+  $("sms-enabled").checked = !!sms.enabled;
+  $("sms-sid").value = sms.accountSid ?? "";
+  $("sms-token").value = sms.authToken ?? "";
+  $("sms-from").value = sms.from ?? "";
+  $("sms-to").value = sms.to ?? "";
+}
+
+function showGmailConnected(email, to) {
+  $("gmail-connected-state").classList.remove("hidden");
+  $("gmail-setup-state").classList.add("hidden");
+  $("gmail-connected-email").textContent = email;
+  $("gmail-to-connected").value = to ?? email;
+}
+
+function showGmailSetup(email) {
+  $("gmail-connected-state").classList.add("hidden");
+  $("gmail-setup-state").classList.remove("hidden");
+  $("gmail-client-id").value = email.clientId ?? "";
+  $("gmail-client-secret").value = email.clientSecret ?? "";
+  $("gmail-to").value = email.to ?? "";
+  if (email.clientId) {
+    $("gmail-guide").removeAttribute("open");
+  } else {
+    $("gmail-guide").setAttribute("open", "");
+  }
+}
+
+// ── Badges ────────────────────────────────────────────────────────────────
+
+function updateBadges() {
+  setBadge("desktop",   config.desktop?.enabled  ? "ok"   : "idle",
+    config.desktop?.enabled ? "Enabled" : "Disabled");
+
+  const email = config.email ?? {};
+  setBadge("email",
+    email.connectedEmail ? "ok" : email.clientId ? "warn" : "idle",
+    email.connectedEmail ? "Connected" : email.clientId ? "Credentials saved" : "Not configured");
+
+  const wa = config.whatsapp ?? {};
+  setBadge("whatsapp",
+    wa.enabled && wa.phone && wa.apikey ? "ok" : wa.phone ? "warn" : "idle",
+    wa.enabled && wa.phone && wa.apikey ? "Configured" : wa.phone ? "Incomplete" : "Not configured");
+
+  const sms = config.sms ?? {};
+  setBadge("sms",
+    sms.enabled && sms.accountSid && sms.authToken ? "ok" : sms.accountSid ? "warn" : "idle",
+    sms.enabled && sms.accountSid && sms.authToken ? "Configured" : sms.accountSid ? "Incomplete" : "Not configured");
+}
+
+function setBadge(channel, type, text) {
+  const el = $("badge-" + channel);
+  el.className = "badge badge-" + type;
+  el.textContent = text;
+}
+
+// ── Save handlers ─────────────────────────────────────────────────────────
+
+function saveDesktop() {
+  patch({ desktop: { enabled: $("desktop-enabled").checked } });
+}
+
+async function saveEmail() {
+  const isConnected = !!config.email?.connectedEmail;
+  const to = isConnected
+    ? $("gmail-to-connected").value.trim()
+    : $("gmail-to").value.trim();
+  await patch({ email: { to } });
+  clearDirty("email");
+}
+
+async function saveWhatsApp() {
+  await patch({
+    whatsapp: {
+      enabled: $("whatsapp-enabled").checked,
+      phone: $("whatsapp-phone").value.trim(),
+      apikey: $("whatsapp-apikey").value.trim(),
+    },
+  });
+  clearDirty("whatsapp");
+}
+
+async function saveSms() {
+  await patch({
+    sms: {
+      enabled: $("sms-enabled").checked,
+      accountSid: $("sms-sid").value.trim(),
+      authToken: $("sms-token").value.trim(),
+      from: $("sms-from").value.trim(),
+      to: $("sms-to").value.trim(),
+    },
+  });
+  clearDirty("sms");
+}
+
+async function patch(update) {
+  try {
+    const res = await fetch("/api/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(update),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error);
+    toast("Saved", "ok");
+    await loadConfig();
+  } catch (e) {
+    toast("Save failed: " + e, "error");
+  }
+}
+
+// ── Google OAuth ──────────────────────────────────────────────────────────
+
+async function startGoogleAuth() {
+  const clientId = $("gmail-client-id").value.trim();
+  const clientSecret = $("gmail-client-secret").value.trim();
+  const to = $("gmail-to").value.trim();
+
+  if (!clientId || !clientSecret) {
+    toast("Enter your Client ID and Client Secret first.", "error");
+    return;
+  }
+
+  // Save credentials first, then redirect to OAuth
+  try {
+    const res = await fetch("/api/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: { clientId, clientSecret, to } }),
+    });
+    if (!res.ok) throw new Error((await res.json()).error);
+    location.href = "/auth/google/start";
+  } catch (e) {
+    toast("Failed to save credentials: " + e, "error");
+  }
+}
+
+async function disconnectGmail() {
+  if (!confirm("Disconnect Gmail? You'll need to re-authenticate to send emails.")) return;
+  try {
+    const res = await fetch("/auth/google", { method: "DELETE" });
+    if (!res.ok) throw new Error((await res.json()).error);
+    toast("Gmail disconnected", "ok");
+    await loadConfig();
+  } catch (e) {
+    toast("Error: " + e, "error");
+  }
+}
+
+// ── Test channels ─────────────────────────────────────────────────────────
+
+async function testChannel(channel) {
+  const btn = document.querySelector(`#card-${channel === "email" ? "email" : channel} .btn-secondary`);
+  if (btn) { btn.disabled = true; btn.textContent = "Sending…"; }
+
+  try {
+    const res = await fetch(`/api/test/${channel}`, { method: "POST" });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error);
+    toast(json.message, "ok");
+    setBadge(channel, "ok", "✓ Works");
+  } catch (e) {
+    toast("Test failed: " + e, "error");
+    setBadge(channel, "error", "Failed");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Send test";
+    }
+  }
+}
+
+// ── OS hint ───────────────────────────────────────────────────────────────
+
+function renderOsHint() {
+  const ua = navigator.userAgent;
+  const hint = $("os-hint");
+  if (ua.includes("Mac")) {
+    hint.textContent = "macOS: System Settings → Notifications → Script Editor (or Terminal) → Allow notifications.";
+    hint.classList.add("visible");
+  } else if (ua.includes("Linux")) {
+    hint.textContent = "Linux: requires libnotify (notify-send). Install with: sudo apt install libnotify-bin";
+    hint.classList.add("visible");
+  }
+}
+
+// ── Dirty tracking ────────────────────────────────────────────────────────
+
+function markDirty(section) {
+  dirty.add(section);
+  const btn = $("save-" + section + "-btn");
+  if (btn) btn.classList.add("dirty");
+}
+
+function clearDirty(section) {
+  dirty.delete(section);
+  const btn = $("save-" + section + "-btn");
+  if (btn) btn.classList.remove("dirty");
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────
+
+let toastTimer;
+function toast(msg, type = "ok") {
+  const el = $("toast");
+  el.textContent = msg;
+  el.className = "toast toast-" + type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.add("hidden"), 3500);
+}
+
+// ── Utils ─────────────────────────────────────────────────────────────────
+
+function $(id) { return document.getElementById(id); }
+
+function copyText(el) {
+  const text = el.textContent.replace(" 📋", "").trim();
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = el.textContent;
+    el.textContent = "Copied!";
+    setTimeout(() => (el.textContent = orig), 1500);
+  });
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────
+
+document.addEventListener("DOMContentLoaded", init);

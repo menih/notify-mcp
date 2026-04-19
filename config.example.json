@@ -19,8 +19,8 @@
     "host": "smtp.gmail.com",
     "port": 587,
     "secure": false,
-    "user": "menihillel@gmail.com",
+    "user": "your-email@gmail.com",
     "pass": "YOUR_GMAIL_APP_PASSWORD",
-    "to": "menihillel@gmail.com"
+    "to": "your-email@gmail.com"
   }
 }

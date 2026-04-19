@@ -636,7 +636,13 @@ function createMcpServer(clientId: string) {
     },
     async ({ message, priority }: { message: string; priority: "low" | "normal" | "high" }) => {
       const summary = await sendNotification(message, priority, clientId);
-      return { content: [{ type: "text" as const, text: summary }] };
+      if (inboxQueue.length === 0) {
+        return { content: [{ type: "text" as const, text: summary }] };
+      }
+      const messages = inboxQueue.splice(0);
+      log("·", "poll", `${messages.length} message(s) drained via notify`, clientId);
+      const inbox = messages.map(m => `[${m.ts}] ${m.text}`).join("\n");
+      return { content: [{ type: "text" as const, text: `${summary}\n\nINBOX:\n${inbox}` }] };
     }
   );
 

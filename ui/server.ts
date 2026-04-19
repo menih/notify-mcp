@@ -1,7 +1,7 @@
 import express from "express";
 import { google } from "googleapis";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
-import { homedir } from "os";
+import { homedir, networkInterfaces } from "os";
 import { join } from "path";
 import { fileURLToPath } from "url";
 import { spawnSync, spawn } from "child_process";
@@ -9,6 +9,9 @@ import open from "open";
 import notifier from "node-notifier";
 import nodemailer from "nodemailer";
 import twilio from "twilio";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { z } from "zod";
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3737;
 const REDIRECT_URI = `http://localhost:${PORT}/auth/google/callback`;
@@ -421,10 +424,121 @@ app.delete("/auth/google", (_req, res) => {
   res.json({ ok: true });
 });
 
+// ── MCP over SSE ──────────────────────────────────────────────────────────────
+
+async function sendNotification(message: string, priority: "low" | "normal" | "high") {
+  const cfg = loadConfig();
+  const results: string[] = [];
+  const errors: string[] = [];
+
+  const send = async (name: string, fn: () => Promise<void>) => {
+    try { await fn(); results.push(name); }
+    catch (err) { errors.push(`${name}: ${err instanceof Error ? err.message : String(err)}`); }
+  };
+
+  if (priority !== "low") {
+    if (cfg.desktop?.enabled) {
+      await send("desktop", () => new Promise<void>((res, rej) =>
+        notifier.notify({ title: "Claude Notify", message, sound: true },
+          (err) => err ? rej(err) : res())));
+    }
+    if (cfg.telegram?.enabled && cfg.telegram.token && cfg.telegram.chatId) {
+      await send("telegram", async () => {
+        const r = await fetch(`https://api.telegram.org/bot${cfg.telegram.token}/sendMessage`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: cfg.telegram.chatId, text: message }),
+        });
+        if (!r.ok) throw new Error(await r.text());
+      });
+    }
+  }
+
+  if (priority === "high") {
+    const sms = cfg.sms ?? {};
+    if (sms.enabled && sms.accountSid && sms.authToken && sms.from && sms.to) {
+      await send("sms", async () => {
+        const client = twilio(sms.accountSid, sms.authToken);
+        await client.messages.create({ body: message, from: sms.from, to: sms.to });
+      });
+    }
+  }
+
+  const email = cfg.email ?? {};
+  if (email.enabled && email.to) {
+    await send("email", async () => {
+      let transport;
+      if (email.refreshToken && email.clientId && email.clientSecret) {
+        transport = nodemailer.createTransport({
+          service: "gmail", auth: { type: "OAuth2", user: email.connectedEmail ?? email.to,
+            clientId: email.clientId, clientSecret: email.clientSecret,
+            refreshToken: email.refreshToken, accessToken: email.accessToken },
+        });
+      } else if (email.host && email.user && email.pass) {
+        transport = nodemailer.createTransport({
+          host: email.host, port: email.port ?? 587, secure: email.secure ?? false,
+          auth: { user: email.user, pass: email.pass },
+        });
+      } else return;
+      await transport.sendMail({ from: email.connectedEmail ?? email.user ?? email.to,
+        to: email.to, subject: "Claude Notify", text: message });
+    });
+  }
+
+  return [
+    results.length ? `Sent via: ${results.join(", ")}` : null,
+    errors.length ? `Errors: ${errors.join("; ")}` : null,
+  ].filter(Boolean).join(" | ") || "No channels delivered";
+}
+
+function createMcpServer() {
+  const server = new McpServer({ name: "notify-mcp", version: "1.0.0" });
+  server.tool(
+    "notify",
+    "Send a notification through configured channels (desktop, Telegram, SMS, email). " +
+      "Use for: task milestones, questions needing input, catastrophic findings, long task completion.",
+    {
+      message: z.string().max(500).describe("Notification message, max 500 chars"),
+      priority: z.enum(["low", "normal", "high"]).default("normal")
+        .describe("low=email only; normal=desktop+telegram+email; high=all channels"),
+    },
+    async ({ message, priority }: { message: string; priority: "low" | "normal" | "high" }) => {
+      const summary = await sendNotification(message, priority);
+      return { content: [{ type: "text" as const, text: summary }] };
+    }
+  );
+  return server;
+}
+
+const sseTransports: Record<string, SSEServerTransport> = {};
+
+app.get("/mcp", async (req, res) => {
+  const transport = new SSEServerTransport("/mcp/message", res);
+  sseTransports[transport.sessionId] = transport;
+  res.on("close", () => delete sseTransports[transport.sessionId]);
+  await createMcpServer().connect(transport);
+});
+
+app.post("/mcp/message", async (req, res) => {
+  const sessionId = req.query.sessionId as string;
+  const transport = sseTransports[sessionId];
+  if (!transport) { res.status(404).json({ error: "Session not found" }); return; }
+  await transport.handlePostMessage(req, res);
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 
-app.listen(PORT, "127.0.0.1", () => {
-  const url = `http://localhost:${PORT}`;
-  console.log(`\n  Claude Notify config UI → ${url}\n`);
-  open(url).catch(() => {});
+function getLocalIp() {
+  for (const nets of Object.values(networkInterfaces())) {
+    for (const net of nets ?? []) {
+      if (net.family === "IPv4" && !net.internal) return net.address;
+    }
+  }
+  return "localhost";
+}
+
+app.listen(PORT, "0.0.0.0", () => {
+  const ip = getLocalIp();
+  console.log(`\n  Claude Notify config UI  → http://localhost:${PORT}`);
+  console.log(`  MCP endpoint (remote)    → http://${ip}:${PORT}/mcp\n`);
+  open(`http://localhost:${PORT}`).catch(() => {});
 });

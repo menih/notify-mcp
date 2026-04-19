@@ -1,7 +1,7 @@
 {
   "name": "omni-notify-mcp",
-  "version": "1.0.1",
-  "description": "Multi-channel notification MCP server: desktop, Telegram, WhatsApp, SMS, and email — configurable via a web UI",
+  "version": "1.1.0",
+  "description": "An MCP server that lets AI agents (Claude, Cursor, etc.) reach you on any channel — desktop, Telegram, SMS, email — with two-way ask/reply, real-time inbox push, Do Not Disturb, idle gating, multi-session routing, and a one-page web UI for setup. Zero config code; configure once, agents call notify/ask.",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
@@ -10,20 +10,28 @@
   "files": [
     "dist/",
     "ui/public/",
+    "assets/",
     "config.example.json",
+    "LICENSE",
     "README.md"
   ],
   "keywords": [
     "mcp",
     "model-context-protocol",
     "notifications",
+    "ai-agent",
+    "claude",
+    "cursor",
     "telegram",
-    "whatsapp",
     "sms",
     "email",
-    "desktop",
-    "claude",
-    "ai-tools"
+    "desktop-notifications",
+    "do-not-disturb",
+    "idle-detection",
+    "human-in-the-loop",
+    "ask-tool",
+    "two-way",
+    "sse"
   ],
   "license": "MIT",
   "repository": {

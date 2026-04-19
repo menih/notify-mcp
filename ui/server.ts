@@ -25,7 +25,7 @@ const ADC_PATH = join(homedir(), ".config", "gcloud", "application_default_crede
 
 function defaultConfig() {
   return {
-    desktop: { enabled: false },
+    desktop: { enabled: false, sound: true },
     telegram: { enabled: false, token: "", chatId: "" },
     whatsapp: { enabled: false, instanceId: "", apiToken: "", phone: "" },
     sms: { enabled: false, accountSid: "", authToken: "", from: "", to: "" },
@@ -149,10 +149,28 @@ app.post("/api/config", (req, res) => {
 
 // ── Test routes ───────────────────────────────────────────────────────────────
 
+// Sound-only test — fires the system sound regardless of the saved 'sound'
+// toggle, so the user can preview the chime before deciding whether to enable
+// it. node-notifier has no sound-only API, so we send a minimal notification.
+app.post("/api/test/sound", (_req, res) => {
+  notifier.notify(
+    { title: "🔔", message: "(sound test)", sound: true, timeout: 1 },
+    (err) => {
+      if (err) res.status(500).json({ error: String(err) });
+      else res.json({ ok: true, message: "System sound played" });
+    }
+  );
+});
+
 app.post("/api/test/desktop", (_req, res) => {
   const time = new Date().toLocaleTimeString();
+  const cfg = loadConfig();
   notifier.notify(
-    { title: "Claude Notify", message: `Desktop is working! (${time})`, sound: true },
+    {
+      title: "Claude Notify",
+      message: `Desktop is working! (${time})`,
+      sound: cfg.desktop?.sound !== false,
+    },
     (err) => {
       if (err) res.status(500).json({ error: String(err) });
       else res.json({ ok: true, message: "Desktop notification sent!" });
@@ -527,7 +545,7 @@ async function sendNotification(message: string, priority: "low" | "normal" | "h
   if (priority !== "low") {
     if (cfg.desktop?.enabled) {
       await send("desktop", () => new Promise<void>((res, rej) =>
-        notifier.notify({ title: "Claude Notify", message, sound: true },
+        notifier.notify({ title: "Claude Notify", message, sound: cfg.desktop?.sound !== false },
           (err) => err ? rej(err) : res())));
     }
     if (cfg.telegram?.enabled && cfg.telegram.token && cfg.telegram.chatId) {
@@ -703,6 +721,32 @@ async function initTgOffset(token: string): Promise<number> {
   return results.length > 0 ? results[results.length - 1].update_id + 1 : 0;
 }
 
+// Backoff + dedupe state for the long-poll loop. A flaky network or revoked
+// token used to spam the activity log with one line every 2s; instead we now
+// back off exponentially and collapse repeated identical errors into a count.
+let tgConsecutiveErrors = 0;
+let tgLastErrorMsg: string | null = null;
+let tgLastErrorCount = 0;
+let tgLastErrorLoggedAt = 0;
+
+function logTelegramError(msg: string) {
+  const now = Date.now();
+  if (msg === tgLastErrorMsg) {
+    tgLastErrorCount++;
+    // Re-emit a rollup line at most once every 30s while errors keep repeating.
+    if (now - tgLastErrorLoggedAt > 30_000) {
+      log("·", "telegram:error", `${msg} (×${tgLastErrorCount} since last log)`);
+      tgLastErrorLoggedAt = now;
+      tgLastErrorCount = 0;
+    }
+  } else {
+    log("·", "telegram:error", msg);
+    tgLastErrorMsg = msg;
+    tgLastErrorCount = 0;
+    tgLastErrorLoggedAt = now;
+  }
+}
+
 async function startTelegramListener() {
   while (true) {
     try {
@@ -717,8 +761,16 @@ async function startTelegramListener() {
         log("·", "telegram", `listener ready, offset=${tgPollOffset}`);
       }
       const r = await fetch(
-        `https://api.telegram.org/bot${token}/getUpdates?offset=${tgPollOffset}&timeout=10`
+        `https://api.telegram.org/bot${token}/getUpdates?offset=${tgPollOffset}&timeout=10`,
+        { signal: AbortSignal.timeout(15_000) }
       );
+      // Reset error state on any successful fetch.
+      if (tgConsecutiveErrors > 0) {
+        log("·", "telegram", `recovered after ${tgConsecutiveErrors} failed attempt(s)`);
+        tgConsecutiveErrors = 0;
+        tgLastErrorMsg = null;
+        tgLastErrorCount = 0;
+      }
       const json = await r.json() as any;
       for (const update of json.result ?? []) {
         tgPollOffset = update.update_id + 1;
@@ -767,9 +819,12 @@ async function startTelegramListener() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (!msg.includes("terminated") && !msg.includes("aborted")) {
-        log("·", "telegram:error", msg);
+        logTelegramError(msg);
       }
-      await new Promise(r => setTimeout(r, 2000));
+      tgConsecutiveErrors++;
+      // Exponential backoff: 2s → 5s → 10s → 20s → 40s → cap at 60s.
+      const delay = Math.min(60_000, 2000 * Math.pow(2, Math.min(5, tgConsecutiveErrors - 1)));
+      await new Promise(r => setTimeout(r, delay));
     }
   }
 }

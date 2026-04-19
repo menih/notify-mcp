@@ -11,14 +11,20 @@
 
   <header>
     <div class="logo">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-      Claude Notify
+      <img src="assets/logo.svg" width="22" height="22" alt="">
+      omni-notify-mcp
     </div>
-    <span class="subtitle">Configure notification channels</span>
+    <span class="subtitle">Multi-channel notifications for AI agents</span>
   </header>
 
   <main>
-    <div class="card-list" id="card-list">
+    <div class="config-panel">
+    <section class="section section-channels">
+      <div class="section-hd">
+        <span class="section-hd-title">Delivery channels</span>
+        <span class="section-hd-sub">Where notifications go</span>
+      </div>
+      <div class="card-list" id="card-list-channels">
 
       <!-- ── Desktop ───────────────────────────────────────────────── -->
       <div class="card" id="card-desktop">
@@ -39,6 +45,14 @@
             </label>
             <span class="toggle-lbl">Enable</span>
             <button class="btn btn-sm btn-ghost" onclick="testChannel('desktop')">Test</button>
+          </div>
+          <div class="actions" style="margin-top:6px">
+            <label class="toggle-wrap">
+              <input type="checkbox" id="desktop-sound" onchange="saveDesktop()">
+              <span class="toggle"></span>
+            </label>
+            <span class="toggle-lbl">Play system sound</span>
+            <button class="btn btn-sm btn-ghost" onclick="testSound()">Test sound</button>
           </div>
           <span id="os-hint" class="os-tag hidden"></span>
         </div>
@@ -172,6 +186,16 @@
         </div>
       </div>
 
+      </div>
+    </section>
+
+    <section class="section section-policies">
+      <div class="section-hd">
+        <span class="section-hd-title">System policies</span>
+        <span class="section-hd-sub">When &amp; how to suppress</span>
+      </div>
+      <div class="card-list" id="card-list-policies">
+
       <!-- ── Do Not Disturb ────────────────────────────────────────── -->
       <div class="card" id="card-dnd">
         <div class="card-hd">
@@ -248,6 +272,8 @@
         </div>
       </div>
 
+      </div>
+    </section>
     </div>
 
     <div class="log-section">

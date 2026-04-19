@@ -43,6 +43,7 @@ async function loadConfig() {
 function populateForm() {
   // Desktop
   $("desktop-enabled").checked = !!config.desktop?.enabled;
+  $("desktop-sound").checked = config.desktop?.sound !== false; // default on
 
   // Email / Gmail
   const email = config.email ?? {};
@@ -148,7 +149,12 @@ function setBadge(channel, type, text) {
 // ── Save handlers ─────────────────────────────────────────────────────────
 
 function saveDesktop() {
-  patch({ desktop: { enabled: $("desktop-enabled").checked } });
+  patch({
+    desktop: {
+      enabled: $("desktop-enabled").checked,
+      sound: $("desktop-sound").checked,
+    },
+  });
 }
 
 async function saveEmail() {
@@ -376,6 +382,17 @@ async function disconnectGmail() {
     await loadConfig();
   } catch (e) {
     toast("Error: " + e, "error");
+  }
+}
+
+async function testSound() {
+  try {
+    const res = await fetch("/api/test/sound", { method: "POST" });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error);
+    toast(json.message, "ok");
+  } catch (e) {
+    toast("Sound test failed: " + e, "error");
   }
 }
 

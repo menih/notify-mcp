@@ -74,21 +74,85 @@ main {
   min-height: 0;
   overflow: hidden;
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   gap: 14px;
 }
 
 /* ── Card list (left column) ─────────────────────────────────────────────── */
 
 .card-list {
-  flex-shrink: 0;
+  flex: 1;
+  min-height: 0;
   height: 100%;
-  overflow-x: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   flex-wrap: wrap;
   align-content: flex-start;
-  gap: 14px;
+  gap: 12px;
+}
+
+/* Top half: single Configuration panel with two side-by-side subsections.
+   Bottom half: full-width activity log. */
+.config-panel {
+  display: flex;
+  flex-direction: row;
+  flex-shrink: 0;
+  /* Take ~60% of the vertical space so the log gets a real chunk too */
+  height: 62%;
+  min-height: 0;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px 14px;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Channels has 4 cards → needs ~3× the room of Policies (which has 2 cards). */
+.section-channels { flex: 3 1 0; }
+.section-policies { flex: 2 1 0; }
+
+/* Divider between the two subsections — owned by the panel, not the sections */
+.section + .section {
+  border-left: 1px solid var(--border);
+}
+
+/* Subtle accent strip at the top of each subsection so the role is obvious
+   without re-introducing two heavy framed boxes. */
+.section-channels { box-shadow: inset 0 3px 0 0 #7c6dfa; }
+.section-policies { box-shadow: inset 0 3px 0 0 #f59e0b; }
+
+.section-hd {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 2px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.section-hd-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.section-channels .section-hd-title { color: #b3a8ff; }
+.section-policies .section-hd-title { color: #f5b463; }
+
+.section-hd-sub {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-left: auto;
 }
 
 /* ── Log section (right, fills remaining width) ──────────────────────────── */
@@ -127,7 +191,8 @@ main {
 /* ── Cards ───────────────────────────────────────────────────────────────── */
 
 .card {
-  width: 300px;
+  width: 280px;
+  max-width: 100%;
   background: var(--surface);
   border: 2px solid #4a4a5a;
   border-radius: var(--r);

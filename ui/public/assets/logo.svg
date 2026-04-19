@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="omni-notify-mcp">
+  <title>omni-notify-mcp</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"  stop-color="#7c6dfa"/>
+      <stop offset="100%" stop-color="#3b2eb6"/>
+    </linearGradient>
+    <linearGradient id="bell" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#e8e4ff"/>
+    </linearGradient>
+    <!-- Radar sweep wedge: bright at the leading edge, fading to transparent -->
+    <linearGradient id="sweep" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#a7ffb6" stop-opacity="0.95"/>
+      <stop offset="55%"  stop-color="#34d399" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#34d399" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.45" r="0.55">
+      <stop offset="0%"  stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Clip the sweep wedge so it stays inside the outer radar ring -->
+    <clipPath id="radarClip">
+      <circle cx="128" cy="128" r="100"/>
+    </clipPath>
+  </defs>
+
+  <!-- Rounded purple square background -->
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#bg)"/>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#glow)"/>
+
+  <!-- ── RADAR (full concentric range rings + sweep wedge) ───────────────── -->
+  <g>
+    <!-- Three full range rings — bold, unmistakably "radar" -->
+    <circle cx="128" cy="128" r="100" fill="none" stroke="#ffffff" stroke-opacity="0.30" stroke-width="2.5"/>
+    <circle cx="128" cy="128" r="74"  fill="none" stroke="#ffffff" stroke-opacity="0.40" stroke-width="2.5"/>
+    <circle cx="128" cy="128" r="48"  fill="none" stroke="#ffffff" stroke-opacity="0.55" stroke-width="2.5"/>
+
+    <!-- Crosshair lines through center -->
+    <line x1="28"  y1="128" x2="228" y2="128" stroke="#ffffff" stroke-opacity="0.20" stroke-width="1.5"/>
+    <line x1="128" y1="28"  x2="128" y2="228" stroke="#ffffff" stroke-opacity="0.20" stroke-width="1.5"/>
+
+    <!-- Sweep wedge: 60° pie slice from center, rotating clockwise from north -->
+    <g clip-path="url(#radarClip)">
+      <path d="M128 128 L128 28 A100 100 0 0 1 214.6 78 Z"
+            fill="url(#sweep)"/>
+    </g>
+
+    <!-- Leading edge of the sweep — a bright thin line so the rotation reads -->
+    <line x1="128" y1="128" x2="214.6" y2="78"
+          stroke="#a7ffb6" stroke-width="2.5" stroke-opacity="0.9" stroke-linecap="round"/>
+
+    <!-- Center "ping" dot -->
+    <circle cx="128" cy="128" r="3.5" fill="#a7ffb6"/>
+  </g>
+
+  <!-- ── BELL (foreground icon, sits on top of radar) ────────────────────── -->
+  <g>
+    <!-- Soft drop shadow so the bell pops off the radar -->
+    <path d="M128 76
+             C 102 76, 90 96, 90 124
+             L 90 150
+             C 90 158, 84 164, 80 170
+             L 176 170
+             C 172 164, 166 158, 166 150
+             L 166 124
+             C 166 96, 154 76, 128 76 Z"
+          fill="#0d0d10" opacity="0.35" transform="translate(0,3)"/>
+    <!-- Bell body -->
+    <path d="M128 76
+             C 102 76, 90 96, 90 124
+             L 90 150
+             C 90 158, 84 164, 80 170
+             L 176 170
+             C 172 164, 166 158, 166 150
+             L 166 124
+             C 166 96, 154 76, 128 76 Z"
+          fill="url(#bell)" stroke="#3b2eb6" stroke-width="2"/>
+    <!-- Bell top stud -->
+    <circle cx="128" cy="70" r="6.5" fill="url(#bell)" stroke="#3b2eb6" stroke-width="2"/>
+    <!-- Bell clapper -->
+    <path d="M120 178
+             C 120 188, 136 188, 136 178 Z"
+          fill="url(#bell)" stroke="#3b2eb6" stroke-width="2"/>
+  </g>
+
+  <!-- ── CHAT BUBBLE (lower-right, denotes bidirectional ask/reply) ──────── -->
+  <g>
+    <path d="M158 156
+             h 42
+             a 14 14 0 0 1 14 14
+             v 26
+             a 14 14 0 0 1 -14 14
+             h -22
+             l -14 14
+             v -14
+             h -6
+             a 14 14 0 0 1 -14 -14
+             v -26
+             a 14 14 0 0 1 14 -14 Z"
+          fill="#0d0d10" stroke="#ffffff" stroke-width="3" stroke-linejoin="round"/>
+    <!-- Three bubble dots = "typing / message" -->
+    <circle cx="167" cy="183" r="3.2" fill="#ffffff"/>
+    <circle cx="181" cy="183" r="3.2" fill="#ffffff"/>
+    <circle cx="195" cy="183" r="3.2" fill="#ffffff"/>
+  </g>
+</svg>

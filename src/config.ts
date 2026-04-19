@@ -4,6 +4,7 @@ import { join } from "path";
 
 export interface DesktopConfig {
   enabled: boolean;
+  sound?: boolean;
 }
 
 export interface TelegramConfig {

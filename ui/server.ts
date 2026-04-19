@@ -17,7 +17,6 @@ import { z } from "zod";
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3737;
 const REDIRECT_URI = `http://localhost:${PORT}/auth/google/callback`;
 
-// Public dir: two levels up from dist/ui/ → project root → ui/public/
 const PUBLIC_DIR = join(fileURLToPath(new URL("../../ui/public", import.meta.url)));
 
 const CONFIG_DIR = join(homedir(), ".notify-mcp");
@@ -66,7 +65,6 @@ function mergePreservingSecrets(
   for (const section of ["desktop", "telegram", "whatsapp", "sms", "email"] as const) {
     merged[section] = { ...(merged[section] || {}), ...(update[section] || {}) };
   }
-  // Don't overwrite real values with masked placeholders
   const guard = (path: [string, string]) => {
     const [sec, field] = path;
     if (update[sec]?.[field] === MASKED) {
@@ -425,16 +423,52 @@ app.delete("/auth/google", (_req, res) => {
   res.json({ ok: true });
 });
 
-// ── MCP over SSE ──────────────────────────────────────────────────────────────
+// ── Log buffer + SSE broadcast ────────────────────────────────────────────────
 
-async function sendNotification(message: string, priority: "low" | "normal" | "high") {
+const LOG_BUFFER_SIZE = 500;
+const logBuffer: string[] = [];
+const logClients = new Set<express.Response>();
+
+function log(direction: "→" | "←" | "·", channel: string, text: string, client?: string) {
+  const ts = new Date().toISOString();
+  const clientPart = client ? ` [${client}]` : "";
+  const entry = `[${ts}]${clientPart} ${direction} [${channel}] ${text}`;
+  console.log(entry);
+  logBuffer.push(entry);
+  if (logBuffer.length > LOG_BUFFER_SIZE) logBuffer.shift();
+  for (const res of logClients) {
+    try { res.write(`data: ${JSON.stringify(entry)}\n\n`); } catch {}
+  }
+}
+
+app.get("/api/logs", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  for (const entry of logBuffer) {
+    res.write(`data: ${JSON.stringify(entry)}\n\n`);
+  }
+  logClients.add(res);
+  req.on("close", () => logClients.delete(res));
+});
+
+// ── Notification sender ───────────────────────────────────────────────────────
+
+async function sendNotification(message: string, priority: "low" | "normal" | "high", client?: string) {
   const cfg = loadConfig();
   const results: string[] = [];
   const errors: string[] = [];
 
   const send = async (name: string, fn: () => Promise<void>) => {
-    try { await fn(); results.push(name); }
-    catch (err) { errors.push(`${name}: ${err instanceof Error ? err.message : String(err)}`); }
+    try {
+      await fn();
+      results.push(name);
+      log("→", name, message, client);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`${name}: ${msg}`);
+      log("→", name, `ERROR: ${msg}`, client);
+    }
   };
 
   if (priority !== "low") {
@@ -500,20 +534,32 @@ function getLocalIp() {
   return "localhost";
 }
 
-// ── Ask / reply system ────────────────────────────────────────────────────────
+// ── Ask / reply + inbox system ────────────────────────────────────────────────
 
 const pendingAsks = new Map<string, { resolve: (v: string) => void; timer: NodeJS.Timeout }>();
-let tgPollOffset = 0;
-let tgPollActive = false;
+const inboxQueue: Array<{ text: string; ts: string }> = [];
+let tgPollOffset = -1;
 
-async function pollTelegram() {
-  if (tgPollActive) return;
-  tgPollActive = true;
-  while (pendingAsks.size > 0) {
+async function initTgOffset(token: string): Promise<number> {
+  const r = await fetch(`https://api.telegram.org/bot${token}/getUpdates?offset=-1&timeout=0`);
+  const json = await r.json() as any;
+  const results: any[] = json.result ?? [];
+  return results.length > 0 ? results[results.length - 1].update_id + 1 : 0;
+}
+
+async function startTelegramListener() {
+  while (true) {
     try {
       const cfg = loadConfig();
       const { token, chatId } = cfg.telegram ?? {};
-      if (!token || !chatId) break;
+      if (!token || !chatId) {
+        await new Promise(r => setTimeout(r, 5000));
+        continue;
+      }
+      if (tgPollOffset < 0) {
+        tgPollOffset = await initTgOffset(token);
+        log("·", "telegram", `listener ready, offset=${tgPollOffset}`);
+      }
       const r = await fetch(
         `https://api.telegram.org/bot${token}/getUpdates?offset=${tgPollOffset}&timeout=10`
       );
@@ -522,20 +568,28 @@ async function pollTelegram() {
         tgPollOffset = update.update_id + 1;
         const msg = update.message;
         if (msg?.chat?.id?.toString() === chatId && msg.text) {
+          log("←", "telegram", msg.text);
           const first = [...pendingAsks.entries()][0];
           if (first) {
             const [id, pending] = first;
             clearTimeout(pending.timer);
             pendingAsks.delete(id);
+            log("←", "ask:reply", msg.text);
             pending.resolve(msg.text);
+          } else {
+            inboxQueue.push({ text: msg.text, ts: new Date().toISOString() });
+            log("·", "inbox", msg.text);
           }
         }
       }
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("terminated") && !msg.includes("aborted")) {
+        log("·", "telegram:error", msg);
+      }
       await new Promise(r => setTimeout(r, 2000));
     }
   }
-  tgPollActive = false;
 }
 
 app.get("/reply/:token", (req, res) => {
@@ -561,12 +615,16 @@ app.post("/reply/:token", (req, res) => {
   if (!pending) { res.status(404).json({ error: "Expired" }); return; }
   clearTimeout(pending.timer);
   pendingAsks.delete(req.params.token);
+  log("←", "web-reply", req.body.response as string);
   pending.resolve(req.body.response as string);
   res.json({ ok: true });
 });
 
-function createMcpServer() {
+// ── MCP server ────────────────────────────────────────────────────────────────
+
+function createMcpServer(clientId: string) {
   const server = new McpServer({ name: "notify-mcp", version: "1.0.0" });
+
   server.tool(
     "notify",
     "Send a notification through configured channels (desktop, Telegram, SMS, email). " +
@@ -577,7 +635,7 @@ function createMcpServer() {
         .describe("low=email only; normal=desktop+telegram+email; high=all channels"),
     },
     async ({ message, priority }: { message: string; priority: "low" | "normal" | "high" }) => {
-      const summary = await sendNotification(message, priority);
+      const summary = await sendNotification(message, priority, clientId);
       return { content: [{ type: "text" as const, text: summary }] };
     }
   );
@@ -597,19 +655,18 @@ function createMcpServer() {
       const replyUrl = `http://${ip}:${PORT}/reply/${token}`;
       const cfg = loadConfig();
 
-      // Send via Telegram
+      log("→", "ask:telegram", question, clientId);
       if (cfg.telegram?.enabled && cfg.telegram.token && cfg.telegram.chatId) {
         await fetch(`https://api.telegram.org/bot${cfg.telegram.token}/sendMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             chat_id: cfg.telegram.chatId,
-            text: `❓ ${question}\n\nReply to this message with your answer.`,
+            text: `❓ [${clientId}] ${question}\n\nReply to this message with your answer.`,
           }),
-        }).catch(() => {});
+        }).catch((err) => log("→", "ask:telegram", `ERROR: ${err}`, clientId));
       }
 
-      // Send via email with reply link
       const email = cfg.email ?? {};
       if (email.enabled && email.to) {
         try {
@@ -634,21 +691,44 @@ function createMcpServer() {
               html: `<p style="font-size:16px">${question}</p>
                      <p><a href="${replyUrl}" style="background:#7c6dfa;color:white;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;margin-top:8px">Reply to Claude</a></p>`,
             });
+            log("→", "ask:email", `question sent to ${email.to}, reply URL: ${replyUrl}`, clientId);
           }
-        } catch { /* best effort */ }
+        } catch (err) {
+          log("→", "ask:email", `ERROR: ${err instanceof Error ? err.message : String(err)}`, clientId);
+        }
       }
 
-      // Wait for reply
+      log("→", "ask", `waiting for reply (timeout: ${timeout_seconds}s)`, clientId);
       const reply = await new Promise<string>((resolve, reject) => {
         const timer = setTimeout(() => {
           pendingAsks.delete(token);
           reject(new Error(`No reply received within ${timeout_seconds}s`));
         }, timeout_seconds * 1000);
         pendingAsks.set(token, { resolve, timer });
-        pollTelegram();
       });
 
+      log("←", "ask:reply", reply, clientId);
       return { content: [{ type: "text" as const, text: reply }] };
+    }
+  );
+
+  server.tool(
+    "poll",
+    "Check for unsolicited messages the user sent on Telegram (not in response to an ask). " +
+      "Returns queued messages and clears the queue. Returns 'inbox:empty' if nothing pending.",
+    {},
+    async () => {
+      if (inboxQueue.length === 0) {
+        return { content: [{ type: "text" as const, text: "inbox:empty" }] };
+      }
+      const messages = inboxQueue.splice(0);
+      log("·", "poll", `${messages.length} message(s) drained`, clientId);
+      return {
+        content: [{
+          type: "text" as const,
+          text: messages.map(m => `[${m.ts}] ${m.text}`).join("\n"),
+        }],
+      };
     }
   );
 
@@ -658,18 +738,20 @@ function createMcpServer() {
 const httpTransports: Record<string, StreamableHTTPServerTransport> = {};
 
 app.all("/mcp", async (req, res) => {
-  const sessionId = req.headers["mcp-session-id"] as string | undefined;
+  const existingSessionId = req.headers["mcp-session-id"] as string | undefined;
 
-  if (sessionId && httpTransports[sessionId]) {
-    await httpTransports[sessionId].handleRequest(req, res, req.body);
+  if (existingSessionId && httpTransports[existingSessionId]) {
+    await httpTransports[existingSessionId].handleRequest(req, res, req.body);
     return;
   }
 
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
+  const newSessionId = randomUUID();
+  const clientId = `sess-${newSessionId.slice(0, 8)}`;
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => newSessionId });
   transport.onclose = () => {
     if (transport.sessionId) delete httpTransports[transport.sessionId];
   };
-  await createMcpServer().connect(transport);
+  await createMcpServer(clientId).connect(transport);
   await transport.handleRequest(req, res, req.body);
   if (transport.sessionId) httpTransports[transport.sessionId] = transport;
 });
@@ -680,5 +762,6 @@ app.listen(PORT, "0.0.0.0", () => {
   const ip = getLocalIp();
   console.log(`\n  Claude Notify config UI  → http://localhost:${PORT}`);
   console.log(`  MCP endpoint (remote)    → http://${ip}:${PORT}/mcp\n`);
+  startTelegramListener();
   open(`http://localhost:${PORT}`).catch(() => {});
 });

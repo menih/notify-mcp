@@ -390,6 +390,78 @@ function copyText(el) {
   });
 }
 
+// ── Log panel ─────────────────────────────────────────────────────────────
+
+// Each unique client gets a stable color
+const clientColors = ["#7c6dfa","#38bdf8","#f472b6","#fb923c","#a3e635","#e879f9","#34d399","#facc15"];
+const clientColorMap = {};
+let clientColorIndex = 0;
+
+function clientColor(id) {
+  if (!clientColorMap[id]) {
+    clientColorMap[id] = clientColors[clientColorIndex % clientColors.length];
+    clientColorIndex++;
+  }
+  return clientColorMap[id];
+}
+
+function parseLogEntry(raw) {
+  // Format: [ISO_TS][opt: [client]] DIR [channel] message
+  const m = raw.match(/^\[([^\]]+)\](?:\s\[([^\]]+)\])?\s([→←·])\s\[([^\]]+)\]\s(.*)$/s);
+  if (!m) return null;
+  return { ts: m[1], client: m[2] || null, dir: m[3], channel: m[4], msg: m[5] };
+}
+
+function renderLogEntry(raw) {
+  const panel = $("log-panel");
+  const p = parseLogEntry(raw);
+  const el = document.createElement("div");
+  el.className = "log-entry";
+
+  if (p) {
+    const ts = new Date(p.ts).toLocaleTimeString([], { hour12: false });
+    const dirClass = p.dir === "→" ? "log-dir-out" : p.dir === "←" ? "log-dir-in" : "log-dir-info";
+    const clientHtml = p.client
+      ? `<span class="log-client" style="color:${clientColor(p.client)}">${p.client}</span>`
+      : "";
+    el.innerHTML = `
+      <span class="log-ts">${ts}</span>
+      ${clientHtml}
+      <span class="${dirClass}">${p.dir}</span>
+      <span class="log-channel">[${p.channel}]</span>
+      <span class="log-msg">${p.msg.replace(/</g,"&lt;")}</span>`;
+  } else {
+    el.innerHTML = `<span class="log-msg">${raw.replace(/</g,"&lt;")}</span>`;
+  }
+
+  const atBottom = panel.scrollHeight - panel.scrollTop <= panel.clientHeight + 20;
+  panel.appendChild(el);
+  if (atBottom) panel.scrollTop = panel.scrollHeight;
+}
+
+function clearLog() {
+  $("log-panel").innerHTML = "";
+}
+
+function connectLogStream() {
+  const dot = $("log-dot");
+  const es = new EventSource("/api/logs");
+
+  es.onmessage = (e) => {
+    renderLogEntry(JSON.parse(e.data));
+  };
+
+  es.onopen = () => {
+    if (dot) { dot.className = "dot dot-ok"; dot.style.display = "inline-block"; }
+  };
+
+  es.onerror = () => {
+    if (dot) { dot.className = "dot dot-warn"; dot.style.display = "inline-block"; }
+    es.close();
+    setTimeout(connectLogStream, 3000);
+  };
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────
 
-document.addEventListener("DOMContentLoaded", init);
+document.addEventListener("DOMContentLoaded", () => { init(); connectLogStream(); });

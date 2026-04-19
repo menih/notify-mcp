@@ -18,7 +18,7 @@
   </header>
 
   <main>
-    <div class="card-list">
+    <div class="card-list" id="card-list">
 
       <!-- ── Desktop ───────────────────────────────────────────────── -->
       <div class="card" id="card-desktop">
@@ -173,6 +173,18 @@
       </div>
 
     </div>
+
+    <div class="log-section">
+      <div class="log-header">
+        <span class="log-title">
+          <span class="dot dot-ok" id="log-dot" style="display:inline-block"></span>
+          Activity Log
+        </span>
+        <button class="btn btn-sm btn-ghost" onclick="clearLog()">Clear</button>
+      </div>
+      <div class="log-panel" id="log-panel"></div>
+    </div>
+
   </main>
 
   <script src="app.js"></script>

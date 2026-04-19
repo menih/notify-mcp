@@ -73,17 +73,55 @@ main {
   padding: 14px 18px;
   min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: row;
+  gap: 14px;
 }
 
-/* ── Card list — fills height, wraps into new column ────────────────────── */
+/* ── Card list (left column) ─────────────────────────────────────────────── */
 
 .card-list {
+  flex-shrink: 0;
   height: 100%;
+  overflow-x: auto;
   display: flex;
   flex-direction: column;
   flex-wrap: wrap;
   align-content: flex-start;
   gap: 14px;
+}
+
+/* ── Log section (right, fills remaining width) ──────────────────────────── */
+
+.log-section {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+
+.log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.log-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: .5px;
 }
 
 /* ── Cards ───────────────────────────────────────────────────────────────── */
@@ -356,19 +394,22 @@ input:focus {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .log-panel {
-  background: #08080e;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 9px 11px;
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 12px;
   font-family: monospace;
   font-size: 11px;
-  color: #7777aa;
-  max-height: 110px;
-  overflow-y: auto;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-all;
+  line-height: 1.7;
 }
+
+.log-entry { display: flex; gap: 8px; align-items: baseline; }
+.log-ts    { color: var(--text-3); white-space: nowrap; flex-shrink: 0; }
+.log-client { color: #7c6dfa; font-weight: 700; white-space: nowrap; flex-shrink: 0; }
+.log-dir-out  { color: #38bdf8; flex-shrink: 0; }
+.log-dir-in   { color: #4ade80; flex-shrink: 0; }
+.log-dir-info { color: var(--text-3); flex-shrink: 0; }
+.log-channel  { color: #fbbf24; white-space: nowrap; flex-shrink: 0; }
+.log-msg      { color: var(--text-2); word-break: break-word; }
 
 /* ── Toast ───────────────────────────────────────────────────────────────── */
 

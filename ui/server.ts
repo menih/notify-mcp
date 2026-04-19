@@ -203,99 +203,42 @@ async function adcEmail(): Promise<string | null> {
   }
 }
 
-app.get("/api/google/autosetup", async (req, res) => {
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
+app.get("/api/google/open-apppasswords", (_req, res) => {
+  open("https://myaccount.google.com/apppasswords").catch(() => {});
+  res.json({ ok: true });
+});
 
-  const send = (type: string, msg: string) =>
-    res.write(`data: ${JSON.stringify({ type, msg })}\n\n`);
-
-  const gcloud = gcloudStatus();
-  if (!gcloud.installed) {
-    send("error", "gcloud not found. Run: brew install --cask google-cloud-sdk");
-    res.end();
+app.post("/api/google/apppassword", async (req, res) => {
+  const { gmailAddress, appPassword } = req.body as { gmailAddress: string; appPassword: string };
+  if (!gmailAddress || !appPassword) {
+    res.status(400).json({ error: "Gmail address and app password required" });
     return;
   }
-
-  send("log", "Checking existing credentials…");
-
-  const existingEmail = await adcEmail();
-  if (existingEmail) {
-    send("log", `Already authenticated as ${existingEmail} — saving config…`);
-    const adc = JSON.parse(readFileSync(ADC_PATH, "utf-8"));
+  try {
+    const transport = nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 587,
+      secure: false,
+      auth: { user: gmailAddress, pass: appPassword },
+    });
+    await transport.verify();
     const cfg = loadConfig();
     cfg.email = {
       ...cfg.email,
-      clientId: adc.client_id,
-      clientSecret: adc.client_secret,
-      refreshToken: adc.refresh_token,
-      connectedEmail: existingEmail,
-      to: cfg.email?.to || existingEmail,
+      host: "smtp.gmail.com",
+      port: 587,
+      secure: false,
+      user: gmailAddress,
+      pass: appPassword,
+      connectedEmail: gmailAddress,
+      to: cfg.email?.to || gmailAddress,
       enabled: true,
     };
     saveConfig(cfg);
-    send("done", existingEmail);
-    res.end();
-    return;
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
   }
-
-  send("log", "Opening browser for Google login…");
-
-  const child = spawn("gcloud", [
-    "auth", "application-default", "login",
-    "--scopes=openid,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/userinfo.profile,https://mail.google.com/",
-  ], { stdio: ["ignore", "pipe", "pipe"] });
-
-  child.stdout.on("data", (d: Buffer) => {
-    for (const line of d.toString().split("\n").filter(Boolean))
-      send("log", line);
-  });
-
-  child.stderr.on("data", (d: Buffer) => {
-    for (const line of d.toString().split("\n").filter(Boolean))
-      send("log", line);
-  });
-
-  child.on("close", async (code) => {
-    if (code !== 0) {
-      send("error", `gcloud auth exited with code ${code}`);
-      res.end();
-      return;
-    }
-    try {
-      const adc = JSON.parse(readFileSync(ADC_PATH, "utf-8"));
-      if (!adc.refresh_token || !adc.client_id || !adc.client_secret) {
-        send("error", "ADC file missing credentials after login");
-        res.end();
-        return;
-      }
-      send("log", "Fetching your email address…");
-      const email = await adcEmail();
-      if (!email) {
-        send("error", "Could not retrieve email from Google");
-        res.end();
-        return;
-      }
-      const cfg = loadConfig();
-      cfg.email = {
-        ...cfg.email,
-        clientId: adc.client_id,
-        clientSecret: adc.client_secret,
-        refreshToken: adc.refresh_token,
-        connectedEmail: email,
-        to: cfg.email?.to || email,
-        enabled: true,
-      };
-      saveConfig(cfg);
-      send("done", email);
-    } catch (err) {
-      send("error", String(err));
-    }
-    res.end();
-  });
-
-  req.on("close", () => child.kill());
 });
 
 // ── gcloud auth ───────────────────────────────────────────────────────────────

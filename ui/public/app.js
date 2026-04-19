@@ -77,11 +77,8 @@ function showGmailConnected(email, to) {
 function showGmailSetup(email) {
   $("gmail-connected-state").classList.add("hidden");
   $("gmail-setup-state").classList.remove("hidden");
-  $("gmail-client-id").value = email.clientId ?? "";
-  $("gmail-client-secret").value = email.clientSecret ?? "";
-  $("gmail-to").value = email.to ?? "";
+  $("gmail-address").value = email.user ?? email.connectedEmail ?? "";
   $("gmail-guide").removeAttribute("open");
-  checkGcloud();
 }
 
 // ── Badges ────────────────────────────────────────────────────────────────
@@ -260,74 +257,34 @@ async function gcloudLogin() {
   };
 }
 
-// ── Gmail auto-setup ──────────────────────────────────────────────────────
+// ── Gmail App Password setup ──────────────────────────────────────────────
 
-async function autoSetupGmail() {
-  const btn = document.querySelector("#gmail-setup-state .btn-primary");
-  const logPanel = $("autosetup-log");
-
-  if (btn) { btn.disabled = true; btn.textContent = "Setting up…"; }
-  logPanel.classList.remove("hidden");
-  logPanel.textContent = "";
-
-  const es = new EventSource("/api/google/autosetup");
-
-  es.onmessage = async (e) => {
-    const { type, msg } = JSON.parse(e.data);
-
-    if (type === "log") {
-      logPanel.textContent += msg + "\n";
-      logPanel.scrollTop = logPanel.scrollHeight;
-      return;
-    }
-
-    if (type === "done") {
-      logPanel.classList.add("hidden");
-      toast("Gmail connected as " + msg, "ok");
-      await loadConfig();
-      es.close();
-      return;
-    }
-
-    if (type === "error") {
-      logPanel.textContent += "Error: " + msg + "\n";
-      logPanel.scrollTop = logPanel.scrollHeight;
-      if (btn) { btn.disabled = false; btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Auto-setup Gmail'; }
-      es.close();
-      return;
-    }
-  };
-
-  es.onerror = () => {
-    logPanel.textContent += "Connection lost\n";
-    if (btn) { btn.disabled = false; btn.textContent = "Auto-setup Gmail"; }
-    es.close();
-  };
+function openAppPasswords() {
+  fetch("/api/google/open-apppasswords").catch(() => {});
 }
 
-// ── Google OAuth ──────────────────────────────────────────────────────────
-
-async function startGoogleAuth() {
-  const clientId = $("gmail-client-id").value.trim();
-  const clientSecret = $("gmail-client-secret").value.trim();
-  const to = $("gmail-to").value.trim();
-
-  if (!clientId || !clientSecret) {
-    toast("Enter your Client ID and Client Secret first.", "error");
+async function saveAppPassword() {
+  const gmailAddress = $("gmail-address").value.trim();
+  const appPassword = $("gmail-app-password").value.replace(/\s/g, "");
+  if (!gmailAddress || !appPassword) {
+    toast("Enter your Gmail address and app password.", "error");
     return;
   }
-
-  // Save credentials first, then redirect to OAuth
+  const btn = document.querySelector("#gmail-setup-state .btn-primary");
+  if (btn) { btn.disabled = true; btn.textContent = "Connecting…"; }
   try {
-    const res = await fetch("/api/config", {
+    const res = await fetch("/api/google/apppassword", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: { clientId, clientSecret, to } }),
+      body: JSON.stringify({ gmailAddress, appPassword }),
     });
-    if (!res.ok) throw new Error((await res.json()).error);
-    location.href = "/auth/google/start";
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error);
+    toast("Gmail connected!", "ok");
+    await loadConfig();
   } catch (e) {
-    toast("Failed to save credentials: " + e, "error");
+    toast("Failed: " + e, "error");
+    if (btn) { btn.disabled = false; btn.textContent = "Connect"; }
   }
 }
 

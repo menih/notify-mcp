@@ -1,74 +1,95 @@
 #!/bin/bash
 set -e
 
+# One-shot release: bumps version, builds, publishes to npm + VS Code marketplace.
+#
 # Usage: ./release.sh [patch|minor|major]   (default: patch)
 #
-# Publishes both:
-#   1. The npm package (omni-notify-mcp) — needs `npm login` + 2FA OTP
-#   2. The VS Code extension (MeniHillel.omni-notify-mcp) — needs VSCE_PAT
-#      env var with marketplace > Manage scope
+# Tokens are read from ~/.notify-mcp-secrets (a key=value file). Format:
+#     NPM_TOKEN=npm_xxxxxxxx
+#     VSCE_PAT=xxxxxxxx
+# See .secrets.example for the full template.
 #
-# Either half can be skipped:
+# Override behavior:
 #   SKIP_NPM=1   ./release.sh   → only publish extension
 #   SKIP_VSCE=1  ./release.sh   → only publish npm
+#   NO_BUMP=1    ./release.sh   → skip version bump (publish current version as-is)
 
 NPM_DIR="$(cd "$(dirname "$0")" && pwd)"
 EXT_DIR="$NPM_DIR/vscode-extension"
-BUMP=${1:-patch}
+SECRETS_FILE="$HOME/.notify-mcp-secrets"
+
+# ── Load secrets ─────────────────────────────────────────────────────────────
+if [ -f "$SECRETS_FILE" ]; then
+  # shellcheck disable=SC1090
+  set -a; source "$SECRETS_FILE"; set +a
+else
+  echo "==> No $SECRETS_FILE found — will rely on env vars only"
+  echo "    To set up once-and-forget: cp .secrets.example ~/.notify-mcp-secrets"
+fi
+
+if [ -z "$NPM_TOKEN" ] && [ -z "$SKIP_NPM" ]; then
+  echo "ERROR: NPM_TOKEN not set. Either:"
+  echo "  - Add it to $SECRETS_FILE, or"
+  echo "  - Export it in your shell, or"
+  echo "  - Run with SKIP_NPM=1"
+  exit 1
+fi
+
+if [ -z "$VSCE_PAT" ] && [ -z "$SKIP_VSCE" ]; then
+  echo "==> WARN: VSCE_PAT not set — extension will be packaged but NOT uploaded"
+  echo "         Set it in $SECRETS_FILE to enable marketplace publish."
+fi
 
 cd "$NPM_DIR"
 
-echo "==> Bumping version ($BUMP)..."
-NEW_VERSION=$(npm version "$BUMP" --no-git-tag-version | tr -d 'v')
-echo "    Version: $NEW_VERSION"
+# ── Version bump ─────────────────────────────────────────────────────────────
+if [ -n "$NO_BUMP" ]; then
+  NEW_VERSION=$(node -p "require('./package.json').version")
+  echo "==> NO_BUMP set — using current version $NEW_VERSION"
+else
+  BUMP=${1:-patch}
+  echo "==> Bumping version ($BUMP)..."
+  NEW_VERSION=$(npm version "$BUMP" --no-git-tag-version | tr -d 'v')
+  echo "    Version: $NEW_VERSION"
+fi
 
-echo "==> Building MCP server..."
-npm run build:mcp
-
-echo "==> Building UI server..."
-npm run build:ui
+# ── Build ────────────────────────────────────────────────────────────────────
+echo "==> Building MCP server + UI..."
+npm run build
 
 # ── npm publish ──────────────────────────────────────────────────────────────
 if [ -z "$SKIP_NPM" ]; then
   echo "==> Publishing to npm..."
-  if [ -n "$NPM_OTP" ]; then
-    npm publish --access public --otp="$NPM_OTP"
-  else
-    npm publish --access public
-  fi
+  npm publish --access public
   echo "    OK npm: omni-notify-mcp@$NEW_VERSION"
 else
   echo "==> SKIP_NPM set — skipping npm publish"
 fi
 
 # ── VS Code extension publish ────────────────────────────────────────────────
-if [ -z "$SKIP_VSCE" ]; then
-  if [ ! -d "$EXT_DIR" ]; then
-    echo "==> No vscode-extension/ folder — skipping marketplace publish"
-  else
-    echo "==> Syncing extension version to $NEW_VERSION..."
-    cd "$EXT_DIR"
-    node -e "
-      const fs=require('fs');
-      const p=JSON.parse(fs.readFileSync('package.json','utf8'));
-      p.version='$NEW_VERSION';
-      fs.writeFileSync('package.json', JSON.stringify(p,null,2)+'\n');
-    "
+if [ -z "$SKIP_VSCE" ] && [ -d "$EXT_DIR" ]; then
+  echo "==> Syncing extension version to $NEW_VERSION..."
+  cd "$EXT_DIR"
+  node -e "
+    const fs=require('fs');
+    const p=JSON.parse(fs.readFileSync('package.json','utf8'));
+    p.version='$NEW_VERSION';
+    fs.writeFileSync('package.json', JSON.stringify(p,null,2)+'\n');
+  "
+  rm -f *.vsix
 
-    if [ -z "$VSCE_PAT" ]; then
-      echo "==> VSCE_PAT not set — packaging .vsix only (no marketplace upload)"
-      npx --yes @vscode/vsce package
-      echo "    .vsix written to $EXT_DIR"
-      echo "    Set VSCE_PAT and re-run, or upload manually at:"
-      echo "    https://marketplace.visualstudio.com/manage/publishers/menihillel"
-    else
-      echo "==> Publishing to VS Code marketplace..."
-      npx --yes @vscode/vsce publish --pat "$VSCE_PAT"
-      echo "    OK marketplace: MeniHillel.omni-notify-mcp@$NEW_VERSION"
-    fi
-    cd "$NPM_DIR"
+  echo "==> Publishing extension to VS Code marketplace..."
+  if [ -n "$VSCE_PAT" ]; then
+    # Explicit PAT in env — use it
+    vsce publish --pat "$VSCE_PAT"
+  else
+    # Use vsce's stored credential (set via `vsce login MeniHillel`)
+    vsce publish
   fi
-else
+  echo "    OK marketplace: MeniHillel.omni-notify-mcp@$NEW_VERSION"
+  cd "$NPM_DIR"
+elif [ -n "$SKIP_VSCE" ]; then
   echo "==> SKIP_VSCE set — skipping marketplace publish"
 fi
 

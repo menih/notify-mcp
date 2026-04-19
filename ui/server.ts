@@ -543,6 +543,41 @@ const inboxQueue: Array<{ text: string; ts: string; messageId?: number }> = [];
 let tgPollOffset = -1;
 let lastUserMessageId: number | undefined;
 
+// SSE stream of new inbox messages (server-push). Used by agents that want to
+// wake up on every unsolicited Telegram message without polling. Each message
+// emits a single SSE event with a JSON payload: {ts, text, messageId}.
+const inboxStreamClients = new Set<express.Response>();
+
+function broadcastInbox(entry: { text: string; ts: string; messageId?: number }) {
+  const payload = JSON.stringify(entry);
+  for (const res of inboxStreamClients) {
+    try {
+      res.write(`data: ${payload}\n\n`);
+    } catch {
+      // drop on failure; the close handler will remove the client
+    }
+  }
+}
+
+app.get("/api/inbox/stream", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  // Initial comment so the client knows the stream is alive.
+  res.write(`: connected ${new Date().toISOString()}\n\n`);
+  inboxStreamClients.add(res);
+  // Keep-alive ping every 20s so intermediate proxies / curl don't time out
+  // and so the client sees the connection is still live.
+  const keepAlive = setInterval(() => {
+    try { res.write(`: ping ${Date.now()}\n\n`); } catch {}
+  }, 20_000);
+  req.on("close", () => {
+    clearInterval(keepAlive);
+    inboxStreamClients.delete(res);
+  });
+});
+
 async function initTgOffset(token: string): Promise<number> {
   const r = await fetch(`https://api.telegram.org/bot${token}/getUpdates?offset=-1&timeout=0`);
   const json = await r.json() as any;
@@ -581,7 +616,9 @@ async function startTelegramListener() {
             log("←", "ask:reply", msg.text);
             pending.resolve(msg.text);
           } else {
-            inboxQueue.push({ text: msg.text, ts: new Date().toISOString(), messageId: msg.message_id });
+            const entry = { text: msg.text, ts: new Date().toISOString(), messageId: msg.message_id };
+            inboxQueue.push(entry);
+            broadcastInbox(entry);
             log("·", "inbox", msg.text);
             // Acknowledge receipt so user knows the message was queued
             fetch(`https://api.telegram.org/bot${token}/sendMessage`, {

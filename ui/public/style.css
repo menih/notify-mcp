@@ -1,19 +1,19 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg:        #f0f2f5;
-  --surface:   #ffffff;
-  --border:    #e2e6ea;
-  --text:      #1a202c;
-  --text-2:    #4a5568;
-  --text-3:    #718096;
-  --accent:    #5850ec;
-  --accent-h:  #4640d4;
+  --bg:        #0a0a0b;
+  --surface:   #111113;
+  --border:    #222226;
+  --text:      #f0f0f0;
+  --text-2:    #a0a0b0;
+  --text-3:    #606070;
+  --accent:    #7c6dfa;
+  --accent-h:  #9080ff;
   --success:   #10b981;
   --danger:    #ef4444;
   --warn:      #f59e0b;
   --radius:    12px;
-  --shadow:    0 1px 3px rgba(0,0,0,.08), 0 4px 16px rgba(0,0,0,.06);
+  --shadow:    0 1px 3px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.3);
 }
 
 body {
@@ -114,10 +114,10 @@ footer code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-
   flex-shrink: 0;
   margin-top: 1px;
 }
-.desktop-icon  { background: #eff6ff; color: #3b82f6; }
-.gmail-icon    { background: #fef2f2; color: #ef4444; }
-.whatsapp-icon { background: #f0fdf4; color: #22c55e; }
-.sms-icon      { background: #fdf4ff; color: #a855f7; }
+.desktop-icon  { background: #0d1a2e; color: #60a5fa; }
+.gmail-icon    { background: #2e0d0d; color: #f87171; }
+.whatsapp-icon { background: #0d2e1a; color: #4ade80; }
+.sms-icon      { background: #1e0d2e; color: #c084fc; }
 
 .provider-tag {
   font-size: 10px;
@@ -142,16 +142,16 @@ footer code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-
   white-space: nowrap;
   flex-shrink: 0;
 }
-.badge-idle    { background: #f1f5f9; color: var(--text-3); }
-.badge-ok      { background: #d1fae5; color: #065f46; }
-.badge-error   { background: #fee2e2; color: #991b1b; }
-.badge-warn    { background: #fef3c7; color: #92400e; }
+.badge-idle    { background: #1e1e24; color: var(--text-3); }
+.badge-ok      { background: #0d2e22; color: #34d399; }
+.badge-error   { background: #2e0d0d; color: #f87171; }
+.badge-warn    { background: #2e200d; color: #fbbf24; }
 
 /* ── Setup guides ────────────────────────────────────────────────────────── */
 
 .setup-guide {
-  background: #f8faff;
-  border: 1px solid #dde5ff;
+  background: #0e0e18;
+  border: 1px solid #2a2a40;
   border-radius: 8px;
   overflow: hidden;
 }
@@ -185,7 +185,7 @@ footer code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-
 .setup-guide a { color: var(--accent); }
 .setup-guide code.copy-hint {
   display: inline-block;
-  background: #fff;
+  background: #1a1a28;
   border: 1px solid var(--border);
   border-radius: 5px;
   padding: 3px 8px;
@@ -195,7 +195,7 @@ footer code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-
   margin-top: 2px;
   transition: background .1s;
 }
-.setup-guide code.copy-hint:hover { background: #eef2ff; }
+.setup-guide code.copy-hint:hover { background: #22223a; }
 .setup-guide code.copy-hint::after { content: " 📋"; font-size: 10px; }
 
 /* ── Forms ───────────────────────────────────────────────────────────────── */
@@ -288,19 +288,19 @@ input:focus {
 .btn-primary  { background: var(--accent); color: #fff; }
 .btn-primary:hover:not(:disabled)  { background: var(--accent-h); }
 
-.btn-secondary { background: var(--bg); color: var(--text-2); border: 1px solid var(--border); }
-.btn-secondary:hover:not(:disabled) { background: var(--border); }
+.btn-secondary { background: #1a1a20; color: var(--text-2); border: 1px solid var(--border); }
+.btn-secondary:hover:not(:disabled) { background: #222230; }
 
 .btn-danger-outline { background: transparent; color: var(--danger); border: 1px solid #fca5a5; }
 .btn-danger-outline:hover:not(:disabled) { background: #fef2f2; }
 
 .btn-google {
-  background: #fff;
+  background: #1a1a20;
   color: var(--text);
   border: 1px solid var(--border);
-  box-shadow: 0 1px 3px rgba(0,0,0,.1);
+  box-shadow: 0 1px 3px rgba(0,0,0,.3);
 }
-.btn-google:hover:not(:disabled) { box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+.btn-google:hover:not(:disabled) { background: #222230; }
 
 /* ── Connected banner ────────────────────────────────────────────────────── */
 
@@ -308,21 +308,21 @@ input:focus {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
+  background: #0d2e22;
+  border: 1px solid #134e35;
   border-radius: 8px;
   padding: 10px 14px;
   font-size: 13px;
-  color: #065f46;
+  color: #34d399;
 }
 
 /* ── OS hint ─────────────────────────────────────────────────────────────── */
 
 .os-hint {
   font-size: 12px;
-  color: var(--text-3);
-  background: #fffbeb;
-  border: 1px solid #fde68a;
+  color: #fbbf24;
+  background: #1c1500;
+  border: 1px solid #3a2e00;
   border-radius: 8px;
   padding: 8px 12px;
   display: none;

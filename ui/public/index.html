@@ -172,6 +172,82 @@
         </div>
       </div>
 
+      <!-- ── Do Not Disturb ────────────────────────────────────────── -->
+      <div class="card" id="card-dnd">
+        <div class="card-hd">
+          <div class="ch-meta">
+            <div class="channel-icon" style="background:#3b2f12;color:#f59e0b">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/></svg>
+            </div>
+            <span class="ch-name">Do Not Disturb</span>
+          </div>
+          <span class="badge badge-idle" id="badge-dnd">–</span>
+        </div>
+        <div class="card-body">
+          <div class="actions">
+            <label class="toggle-wrap">
+              <input type="checkbox" id="dnd-enabled" oninput="markDirty('dnd')">
+              <span class="toggle"></span>
+            </label>
+            <span class="toggle-lbl">DND on (manual)</span>
+            <button class="btn btn-sm btn-primary" id="save-dnd-btn" onclick="saveDnd()">Save</button>
+          </div>
+          <p class="hint">When DND is on, the server suppresses delivery for <code>priority &lt; high</code>. <code>priority='high'</code> always fires.</p>
+          <div class="actions" style="margin-top:8px">
+            <label class="toggle-wrap">
+              <input type="checkbox" id="dnd-schedule-enabled" oninput="markDirty('dnd')">
+              <span class="toggle"></span>
+            </label>
+            <span class="toggle-lbl">Scheduled DND</span>
+          </div>
+          <div class="row2">
+            <div class="fg"><label>Quiet start</label><input type="time" id="dnd-quiet-start" value="22:00" oninput="markDirty('dnd')"></div>
+            <div class="fg"><label>Quiet end</label><input type="time" id="dnd-quiet-end" value="08:00" oninput="markDirty('dnd')"></div>
+          </div>
+          <div class="fg" style="margin-top:8px">
+            <label>Active on days</label>
+            <div id="dnd-days" style="display:flex;gap:8px;flex-wrap:wrap">
+              <label><input type="checkbox" data-day="0" oninput="markDirty('dnd')"> Sun</label>
+              <label><input type="checkbox" data-day="1" oninput="markDirty('dnd')"> Mon</label>
+              <label><input type="checkbox" data-day="2" oninput="markDirty('dnd')"> Tue</label>
+              <label><input type="checkbox" data-day="3" oninput="markDirty('dnd')"> Wed</label>
+              <label><input type="checkbox" data-day="4" oninput="markDirty('dnd')"> Thu</label>
+              <label><input type="checkbox" data-day="5" oninput="markDirty('dnd')"> Fri</label>
+              <label><input type="checkbox" data-day="6" oninput="markDirty('dnd')"> Sat</label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Idle gating ───────────────────────────────────────────── -->
+      <div class="card" id="card-idle">
+        <div class="card-hd">
+          <div class="ch-meta">
+            <div class="channel-icon" style="background:#12293b;color:#3b82f6">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <span class="ch-name">Idle gating</span>
+          </div>
+          <span class="badge badge-idle" id="badge-idle">–</span>
+        </div>
+        <div class="card-body">
+          <div class="actions">
+            <label class="toggle-wrap">
+              <input type="checkbox" id="idle-enabled" oninput="markDirty('idle')">
+              <span class="toggle"></span>
+            </label>
+            <span class="toggle-lbl">Gate non-urgent notifs when user is active</span>
+            <button class="btn btn-sm btn-primary" id="save-idle-btn" onclick="saveIdle()">Save</button>
+          </div>
+          <p class="hint">Clients call <code>get_idle_config</code> + <code>get_idle_seconds</code> and skip the notif if idle is below the threshold. <code>priority='high'</code> always fires.</p>
+          <div class="fg">
+            <label>Threshold (seconds)</label>
+            <input type="number" id="idle-threshold" min="10" max="3600" value="120" oninput="markDirty('idle')">
+            <p class="hint">Default 120s (2 min). Under this, user is considered active → skip.</p>
+          </div>
+        </div>
+      </div>
+
     </div>
 
     <div class="log-section">

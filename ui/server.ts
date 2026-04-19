@@ -30,7 +30,49 @@ function defaultConfig() {
     whatsapp: { enabled: false, instanceId: "", apiToken: "", phone: "" },
     sms: { enabled: false, accountSid: "", authToken: "", from: "", to: "" },
     email: { enabled: false, to: "" },
+    dnd: {
+      enabled: false,      // manual toggle — when true, suppress all non-priority=high notifs
+      schedule: {          // scheduled DND windows — evaluated if dnd.enabled === false
+        enabled: false,
+        quietStart: "22:00", // HH:mm local time
+        quietEnd: "08:00",   // HH:mm local time (wraps past midnight if end < start)
+        days: [0, 1, 2, 3, 4, 5, 6], // 0=Sunday..6=Saturday
+      },
+    },
+    idle: {
+      enabled: true,         // when true, clients are instructed to idle-gate non-urgent notifs
+      thresholdSeconds: 120, // <= this → user considered "active" → client should skip notif
+    },
   };
+}
+
+/**
+ * Returns true if notifications should be suppressed right now based on DND config.
+ * priority=high always bypasses DND (handled by caller, not here).
+ */
+function isDndActive(cfg: Record<string, any>): boolean {
+  const dnd = cfg.dnd ?? {};
+  if (dnd.enabled === true) return true;          // manual toggle wins
+  const sched = dnd.schedule;
+  if (!sched || !sched.enabled) return false;
+
+  const now = new Date();
+  const day = now.getDay();
+  if (!Array.isArray(sched.days) || !sched.days.includes(day)) return false;
+
+  const [sH, sM] = String(sched.quietStart ?? "22:00").split(":").map((s: string) => parseInt(s, 10) || 0);
+  const [eH, eM] = String(sched.quietEnd ?? "08:00").split(":").map((s: string) => parseInt(s, 10) || 0);
+  const startMin = sH * 60 + sM;
+  const endMin = eH * 60 + eM;
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+
+  if (startMin === endMin) return false;
+  // Wrap past midnight: e.g. start=22:00, end=08:00 → "in quiet" if nowMin >= start OR nowMin < end
+  if (startMin < endMin) {
+    return nowMin >= startMin && nowMin < endMin;
+  } else {
+    return nowMin >= startMin || nowMin < endMin;
+  }
 }
 
 function loadConfig(): Record<string, any> {
@@ -62,8 +104,12 @@ function mergePreservingSecrets(
   update: Record<string, any>
 ): Record<string, any> {
   const merged: Record<string, any> = { ...defaultConfig(), ...existing };
-  for (const section of ["desktop", "telegram", "whatsapp", "sms", "email"] as const) {
+  for (const section of ["desktop", "telegram", "whatsapp", "sms", "email", "dnd", "idle"] as const) {
     merged[section] = { ...(merged[section] || {}), ...(update[section] || {}) };
+  }
+  // Nested schedule inside dnd
+  if (update.dnd?.schedule) {
+    merged.dnd.schedule = { ...(merged.dnd.schedule || {}), ...update.dnd.schedule };
   }
   const guard = (path: [string, string]) => {
     const [sec, field] = path;
@@ -459,6 +505,13 @@ async function sendNotification(message: string, priority: "low" | "normal" | "h
   const results: string[] = [];
   const errors: string[] = [];
 
+  // DND check — priority=high always bypasses; anything else gets dropped during quiet hours.
+  // Email still goes through on "low" anyway (historical behavior: low=email-only).
+  if (priority !== "high" && isDndActive(cfg)) {
+    log("·", "dnd", `suppressed ${priority} notif (DND active)`, client);
+    return "DND active — notif suppressed (priority=high would still send)";
+  }
+
   const send = async (name: string, fn: () => Promise<void>) => {
     try {
       await fn();
@@ -525,6 +578,48 @@ async function sendNotification(message: string, priority: "low" | "normal" | "h
     results.length ? `Sent via: ${results.join(", ")}` : null,
     errors.length ? `Errors: ${errors.join("; ")}` : null,
   ].filter(Boolean).join(" | ") || "No channels delivered";
+}
+
+// ── OS idle-time (cross-platform) ─────────────────────────────────────────────
+// Returns seconds since last keyboard/mouse input. -1 on error/unsupported.
+// Clients call the `get_idle_seconds` tool and decide whether to fire a notif.
+
+const IDLE_SCRIPT_PS1 = join(fileURLToPath(new URL("../../scripts/idle-check.ps1", import.meta.url)));
+
+function getOsIdleSeconds(): number {
+  try {
+    if (process.platform === "win32") {
+      // PowerShell + Win32 GetLastInputInfo via bundled script
+      const r = spawnSync("powershell", ["-NoProfile", "-File", IDLE_SCRIPT_PS1], {
+        encoding: "utf-8", windowsHide: true,
+      });
+      if (r.status === 0) {
+        const n = parseInt((r.stdout || "").trim(), 10);
+        return Number.isFinite(n) ? n : -1;
+      }
+      return -1;
+    }
+    if (process.platform === "darwin") {
+      // macOS: ioreg exposes HIDIdleTime in nanoseconds
+      const r = spawnSync("sh", ["-c",
+        "ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'"],
+        { encoding: "utf-8" });
+      if (r.status === 0) {
+        const n = parseInt((r.stdout || "").trim(), 10);
+        return Number.isFinite(n) ? n : -1;
+      }
+      return -1;
+    }
+    // Linux: xprintidle (if installed) returns ms
+    const r = spawnSync("xprintidle", [], { encoding: "utf-8" });
+    if (r.status === 0) {
+      const ms = parseInt((r.stdout || "").trim(), 10);
+      return Number.isFinite(ms) ? Math.floor(ms / 1000) : -1;
+    }
+    return -1;
+  } catch {
+    return -1;
+  }
 }
 
 function getLocalIp() {
@@ -720,12 +815,51 @@ function drainInboxFor(tag: string | undefined): InboxEntry[] {
   return taken;
 }
 
+const MCP_INSTRUCTIONS = `
+This server delivers notifications to the user through whatever channels the
+user has configured on the server side. The client never needs to know which
+channels are in use — just call 'notify' or 'ask' with a generic message.
+
+BEHAVIORAL RULES for every client that connects:
+
+1. Before calling 'notify' or 'ask', call 'get_idle_seconds' first. If the
+   returned value is less than the server-configured threshold (see
+   'get_idle_config'), the user is actively at the keyboard — SKIP the notif
+   call entirely. They can already see what you'd send. Only pay the
+   notification cost when they have stepped away.
+
+2. Exception: priority='high' always fires regardless of idle state. Use
+   'high' for catastrophic findings or decisions that block progress.
+
+3. Echo the full message body in your own chat / conversation output as well
+   as sending it through 'notify'. The user may be reading the terminal
+   directly; don't rely on them checking their phone / email.
+
+4. The message body should be channel-agnostic. Never name 'Telegram', 'SMS',
+   'email', etc. in your messages — those are server delivery details the
+   user has already configured. Say 'notif' or 'notification' instead.
+
+5. When the user sends you an unsolicited message (visible as INBOX items in
+   the 'notify' response, via 'poll', or via the /api/inbox/stream SSE), reply
+   to them THROUGH 'notify' so the reply actually reaches them — not just in
+   your chat output.
+
+6. Check 'get_dnd_status' if you want to know whether the server will actually
+   deliver. If DND is active and priority < high, the server will suppress
+   delivery anyway.
+`.trim();
+
 function createMcpServer(clientId: string, sessionTag?: string) {
-  const server = new McpServer({ name: "notify-mcp", version: "1.0.0" });
+  const server = new McpServer(
+    { name: "notify-mcp", version: "1.0.0" },
+    { instructions: MCP_INSTRUCTIONS }
+  );
 
   server.tool(
     "notify",
-    "Send a notification through configured channels (desktop, Telegram, SMS, email). " +
+    "Send a notification to the user. Delivery channels and DND are server-configured. " +
+      "Before calling, check get_idle_seconds against get_idle_config.thresholdSeconds; " +
+      "skip the call if the user is active (unless priority='high'). " +
       "Use for: task milestones, questions needing input, catastrophic findings, long task completion.",
     {
       message: z.string().max(500).describe("Notification message, max 500 chars"),
@@ -747,8 +881,8 @@ function createMcpServer(clientId: string, sessionTag?: string) {
 
   server.tool(
     "ask",
-    "Send a question and wait for the user's reply via Telegram or email. " +
-      "Use when Claude needs a decision before continuing — e.g. 'Should I delete these files?'",
+    "Send a question to the user and wait for their reply. Channels are server-configured. " +
+      "Use when a decision is needed before continuing — e.g. 'Should I delete these files?'",
     {
       question: z.string().max(500).describe("The question to ask the user"),
       timeout_seconds: z.number().min(30).max(3600).default(300)
@@ -823,8 +957,9 @@ function createMcpServer(clientId: string, sessionTag?: string) {
 
   server.tool(
     "poll",
-    "Check for unsolicited messages the user sent on Telegram (not in response to an ask). " +
-      "Returns queued messages and clears the queue. Returns 'inbox:empty' if nothing pending.",
+    "Check for unsolicited messages the user has sent. " +
+      "Returns queued messages and clears the queue. Returns 'inbox:empty' if nothing pending. " +
+      "Prefer subscribing to the /api/inbox/stream SSE endpoint for real-time delivery.",
     {},
     async () => {
       const messages = drainInboxFor(sessionTag);
@@ -837,6 +972,53 @@ function createMcpServer(clientId: string, sessionTag?: string) {
           type: "text" as const,
           text: `⚠️ USER SENT YOU A MESSAGE — STOP AND RESPOND BEFORE CONTINUING:\n` + messages.map(m => `[${m.ts}] ${m.text}`).join("\n"),
         }],
+      };
+    }
+  );
+
+  server.tool(
+    "get_idle_seconds",
+    "Returns the number of seconds since the user's last keyboard/mouse input. " +
+      "Call this before 'notify' or 'ask' to decide whether to skip (user is active) " +
+      "or fire (user stepped away). Returns -1 if idle detection is unsupported on " +
+      "this platform — in that case, proceed without gating (fail-open).",
+    {},
+    async () => {
+      const secs = getOsIdleSeconds();
+      return { content: [{ type: "text" as const, text: String(secs) }] };
+    }
+  );
+
+  server.tool(
+    "get_idle_config",
+    "Returns the server-configured idle gating policy: " +
+      "{ enabled: boolean, thresholdSeconds: number }. " +
+      "Clients should skip non-urgent notifs when idle_seconds < thresholdSeconds. " +
+      "priority='high' always bypasses.",
+    {},
+    async () => {
+      const cfg = loadConfig();
+      const idle = cfg.idle ?? { enabled: true, thresholdSeconds: 120 };
+      return { content: [{ type: "text" as const, text: JSON.stringify(idle) }] };
+    }
+  );
+
+  server.tool(
+    "get_dnd_status",
+    "Returns the current DND state: " +
+      "{ active: boolean, reason: 'manual' | 'schedule' | 'off' }. " +
+      "When active, the server will suppress delivery for priority < high. " +
+      "Clients can use this to short-circuit before calling 'notify'.",
+    {},
+    async () => {
+      const cfg = loadConfig();
+      const active = isDndActive(cfg);
+      let reason = "off";
+      if (active) {
+        reason = cfg.dnd?.enabled ? "manual" : "schedule";
+      }
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify({ active, reason }) }],
       };
     }
   );

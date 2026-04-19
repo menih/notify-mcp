@@ -66,6 +66,23 @@ function populateForm() {
   $("sms-token").value = sms.authToken ?? "";
   $("sms-from").value = sms.from ?? "";
   $("sms-to").value = sms.to ?? "";
+
+  // DND
+  const dnd = config.dnd ?? {};
+  $("dnd-enabled").checked = !!dnd.enabled;
+  const sched = dnd.schedule ?? {};
+  $("dnd-schedule-enabled").checked = !!sched.enabled;
+  $("dnd-quiet-start").value = sched.quietStart ?? "22:00";
+  $("dnd-quiet-end").value = sched.quietEnd ?? "08:00";
+  const days = Array.isArray(sched.days) ? sched.days : [0,1,2,3,4,5,6];
+  document.querySelectorAll("#dnd-days input[type=checkbox]").forEach(el => {
+    el.checked = days.includes(parseInt(el.dataset.day, 10));
+  });
+
+  // Idle gating
+  const idle = config.idle ?? {};
+  $("idle-enabled").checked = idle.enabled !== false; // default on
+  $("idle-threshold").value = idle.thresholdSeconds ?? 120;
 }
 
 function showGmailConnected(email, to) {
@@ -103,6 +120,23 @@ const sms = config.sms ?? {};
   setBadge("sms",
     sms.enabled && sms.accountSid && sms.authToken ? "ok" : sms.accountSid ? "warn" : "idle",
     sms.enabled && sms.accountSid && sms.authToken ? "Configured" : sms.accountSid ? "Incomplete" : "Not configured");
+
+  // DND badge: "Active" (red), "Scheduled" (warn), or "Off" (idle)
+  const dnd = config.dnd ?? {};
+  const sched = dnd.schedule ?? {};
+  if (dnd.enabled) {
+    setBadge("dnd", "warn", "Active (manual)");
+  } else if (sched.enabled) {
+    setBadge("dnd", "warn", `Scheduled ${sched.quietStart ?? "22:00"}-${sched.quietEnd ?? "08:00"}`);
+  } else {
+    setBadge("dnd", "idle", "Off");
+  }
+
+  // Idle badge
+  const idle = config.idle ?? {};
+  setBadge("idle",
+    idle.enabled !== false ? "ok" : "idle",
+    idle.enabled !== false ? `Gate < ${idle.thresholdSeconds ?? 120}s idle` : "Disabled");
 }
 
 function setBadge(channel, type, text) {
@@ -148,6 +182,36 @@ async function detectChatId() {
   } catch (e) {
     toast("" + e, "error");
   }
+}
+
+async function saveDnd() {
+  const days = [];
+  document.querySelectorAll("#dnd-days input[type=checkbox]").forEach(el => {
+    if (el.checked) days.push(parseInt(el.dataset.day, 10));
+  });
+  await patch({
+    dnd: {
+      enabled: $("dnd-enabled").checked,
+      schedule: {
+        enabled: $("dnd-schedule-enabled").checked,
+        quietStart: $("dnd-quiet-start").value || "22:00",
+        quietEnd: $("dnd-quiet-end").value || "08:00",
+        days,
+      },
+    },
+  });
+  clearDirty("dnd");
+}
+
+async function saveIdle() {
+  const thresh = parseInt($("idle-threshold").value, 10);
+  await patch({
+    idle: {
+      enabled: $("idle-enabled").checked,
+      thresholdSeconds: Number.isFinite(thresh) && thresh > 0 ? thresh : 120,
+    },
+  });
+  clearDirty("idle");
 }
 
 async function saveSms() {

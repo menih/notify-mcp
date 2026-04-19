@@ -11,7 +11,7 @@ import notifier from "node-notifier";
 import nodemailer from "nodemailer";
 import twilio from "twilio";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3737;
@@ -655,20 +655,23 @@ function createMcpServer() {
   return server;
 }
 
-const sseTransports: Record<string, SSEServerTransport> = {};
+const httpTransports: Record<string, StreamableHTTPServerTransport> = {};
 
-app.get("/mcp", async (req, res) => {
-  const transport = new SSEServerTransport("/mcp/message", res);
-  sseTransports[transport.sessionId] = transport;
-  res.on("close", () => delete sseTransports[transport.sessionId]);
+app.all("/mcp", async (req, res) => {
+  const sessionId = req.headers["mcp-session-id"] as string | undefined;
+
+  if (sessionId && httpTransports[sessionId]) {
+    await httpTransports[sessionId].handleRequest(req, res, req.body);
+    return;
+  }
+
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
+  transport.onclose = () => {
+    if (transport.sessionId) delete httpTransports[transport.sessionId];
+  };
   await createMcpServer().connect(transport);
-});
-
-app.post("/mcp/message", async (req, res) => {
-  const sessionId = req.query.sessionId as string;
-  const transport = sseTransports[sessionId];
-  if (!transport) { res.status(404).json({ error: "Session not found" }); return; }
-  await transport.handlePostMessage(req, res);
+  await transport.handleRequest(req, res, req.body);
+  if (transport.sessionId) httpTransports[transport.sessionId] = transport;
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────

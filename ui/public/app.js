@@ -58,12 +58,6 @@ function populateForm() {
   $("telegram-token").value = tg.token ?? "";
   $("telegram-chatid").value = tg.chatId ?? "";
 
-  // WhatsApp
-  const wa = config.whatsapp ?? {};
-  $("whatsapp-enabled").checked = !!wa.enabled;
-  $("whatsapp-instance").value = wa.instanceId ?? "";
-  $("whatsapp-token").value = wa.apiToken ?? "";
-  $("whatsapp-phone").value = wa.phone ?? "";
 
   // SMS
   const sms = config.sms ?? {};
@@ -104,12 +98,7 @@ function updateBadges() {
     tg.enabled && tg.token && tg.chatId ? "ok" : tg.token ? "warn" : "idle",
     tg.enabled && tg.token && tg.chatId ? "Configured" : tg.token ? "Incomplete" : "Not configured");
 
-  const wa = config.whatsapp ?? {};
-  setBadge("whatsapp",
-    wa.enabled && wa.instanceId && wa.phone ? "ok" : wa.instanceId ? "warn" : "idle",
-    wa.enabled && wa.instanceId && wa.phone ? "Configured" : wa.instanceId ? "Incomplete" : "Not configured");
-
-  const sms = config.sms ?? {};
+const sms = config.sms ?? {};
   setBadge("sms",
     sms.enabled && sms.accountSid && sms.authToken ? "ok" : sms.accountSid ? "warn" : "idle",
     sms.enabled && sms.accountSid && sms.authToken ? "Configured" : sms.accountSid ? "Incomplete" : "Not configured");
@@ -160,18 +149,6 @@ async function detectChatId() {
   } catch (e) {
     toast("" + e, "error");
   }
-}
-
-async function saveWhatsApp() {
-  await patch({
-    whatsapp: {
-      enabled: $("whatsapp-enabled").checked,
-      instanceId: $("whatsapp-instance").value.trim(),
-      apiToken: $("whatsapp-token").value.trim(),
-      phone: $("whatsapp-phone").value.trim(),
-    },
-  });
-  clearDirty("whatsapp");
 }
 
 async function saveSms() {

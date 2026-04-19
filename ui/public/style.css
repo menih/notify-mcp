@@ -99,18 +99,14 @@ main {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 14px;
-  flex: 1;
-  min-height: 0;
-  align-items: stretch;
+  align-items: start;
 }
 
 .grid4 {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 14px;
-  flex: 1;
-  min-height: 0;
-  align-items: stretch;
+  align-items: start;
 }
 
 /* ── Cards ───────────────────────────────────────────────────────────────── */

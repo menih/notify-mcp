@@ -538,21 +538,42 @@ function getLocalIp() {
 
 // ── Ask / reply + inbox system ────────────────────────────────────────────────
 
-const pendingAsks = new Map<string, { resolve: (v: string) => void; timer: NodeJS.Timeout }>();
-const inboxQueue: Array<{ text: string; ts: string; messageId?: number }> = [];
+interface InboxEntry { text: string; ts: string; messageId?: number; tag?: string }
+
+const pendingAsks = new Map<string, { resolve: (v: string) => void; timer: NodeJS.Timeout; tag?: string }>();
+const inboxQueue: InboxEntry[] = [];
 let tgPollOffset = -1;
 let lastUserMessageId: number | undefined;
 
-// SSE stream of new inbox messages (server-push). Used by agents that want to
-// wake up on every unsolicited Telegram message without polling. Each message
-// emits a single SSE event with a JSON payload: {ts, text, messageId}.
-const inboxStreamClients = new Set<express.Response>();
+// Session tagging: a session may declare a tag (e.g. "alphawave") when it
+// connects to /mcp?tag=alphawave. Telegram messages starting with "@<tag>"
+// are routed only to sessions with that exact tag (tag prefix stripped).
+// Untagged messages broadcast to every session — backward compatible.
+const TAG_RE = /^@([A-Za-z0-9_-]+)\s+/;
 
-function broadcastInbox(entry: { text: string; ts: string; messageId?: number }) {
+function parseTag(text: string): { tag?: string; text: string } {
+  const m = text.match(TAG_RE);
+  if (!m) return { text };
+  return { tag: m[1].toLowerCase(), text: text.slice(m[0].length) };
+}
+
+function matchesSession(entry: InboxEntry, sessionTag: string | undefined): boolean {
+  if (!entry.tag) return true;            // untagged → everyone
+  return entry.tag === sessionTag;        // tagged   → only matching session
+}
+
+// SSE stream of new inbox messages (server-push). Each connection may filter
+// by tag: /api/inbox/stream?tag=alphawave. Filtering rule mirrors poll/notify:
+// untagged messages always delivered; tagged messages only when tags match.
+interface SseClient { res: express.Response; tag?: string }
+const inboxStreamClients = new Set<SseClient>();
+
+function broadcastInbox(entry: InboxEntry) {
   const payload = JSON.stringify(entry);
-  for (const res of inboxStreamClients) {
+  for (const c of inboxStreamClients) {
+    if (!matchesSession(entry, c.tag)) continue;
     try {
-      res.write(`data: ${payload}\n\n`);
+      c.res.write(`data: ${payload}\n\n`);
     } catch {
       // drop on failure; the close handler will remove the client
     }
@@ -564,9 +585,11 @@ app.get("/api/inbox/stream", (req, res) => {
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
+  const tag = typeof req.query.tag === "string" ? req.query.tag.toLowerCase() : undefined;
   // Initial comment so the client knows the stream is alive.
-  res.write(`: connected ${new Date().toISOString()}\n\n`);
-  inboxStreamClients.add(res);
+  res.write(`: connected ${new Date().toISOString()}${tag ? ` tag=${tag}` : ""}\n\n`);
+  const client: SseClient = { res, tag };
+  inboxStreamClients.add(client);
   // Keep-alive ping every 20s so intermediate proxies / curl don't time out
   // and so the client sees the connection is still live.
   const keepAlive = setInterval(() => {
@@ -574,7 +597,7 @@ app.get("/api/inbox/stream", (req, res) => {
   }, 20_000);
   req.on("close", () => {
     clearInterval(keepAlive);
-    inboxStreamClients.delete(res);
+    inboxStreamClients.delete(client);
   });
 });
 
@@ -608,24 +631,38 @@ async function startTelegramListener() {
         if (msg?.chat?.id?.toString() === chatId && msg.text) {
           log("←", "telegram", msg.text);
           lastUserMessageId = msg.message_id;
-          const first = [...pendingAsks.entries()][0];
-          if (first) {
-            const [id, pending] = first;
+          const { tag, text } = parseTag(msg.text);
+          // Match an outstanding ask first. If the message is tagged, only
+          // route to a pending ask from that same session — otherwise fall
+          // through to the inbox so the targeted session can pick it up.
+          const candidate = [...pendingAsks.entries()].find(([, p]) =>
+            tag ? p.tag === tag : true
+          );
+          if (candidate) {
+            const [id, pending] = candidate;
             clearTimeout(pending.timer);
             pendingAsks.delete(id);
-            log("←", "ask:reply", msg.text);
-            pending.resolve(msg.text);
+            log("←", "ask:reply", text, tag);
+            pending.resolve(text);
           } else {
-            const entry = { text: msg.text, ts: new Date().toISOString(), messageId: msg.message_id };
+            const entry: InboxEntry = {
+              text, ts: new Date().toISOString(), messageId: msg.message_id, tag,
+            };
             inboxQueue.push(entry);
             broadcastInbox(entry);
-            log("·", "inbox", msg.text);
-            // Acknowledge receipt so user knows the message was queued
+            log("·", "inbox", text, tag);
+            // Acknowledge receipt so user knows the message was queued.
+            // Wording is deliberately about *delivery*, not processing: the
+            // agent might be tailing the SSE stream (sees it immediately) or
+            // might only check on its next poll/notify call.
+            const ackText = tag
+              ? `📬 Delivered to @${tag}.`
+              : `📬 Delivered. The agent will process it on its next check-in.`;
             fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
               method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 chat_id: chatId,
-                text: `📬 Got it. The agent will see this when it next runs.`,
+                text: ackText,
                 reply_to_message_id: msg.message_id,
               }),
             }).catch(() => {});
@@ -672,7 +709,18 @@ app.post("/reply/:token", (req, res) => {
 
 // ── MCP server ────────────────────────────────────────────────────────────────
 
-function createMcpServer(clientId: string) {
+function drainInboxFor(tag: string | undefined): InboxEntry[] {
+  const taken: InboxEntry[] = [];
+  for (let i = inboxQueue.length - 1; i >= 0; i--) {
+    if (matchesSession(inboxQueue[i], tag)) {
+      taken.unshift(inboxQueue[i]);
+      inboxQueue.splice(i, 1);
+    }
+  }
+  return taken;
+}
+
+function createMcpServer(clientId: string, sessionTag?: string) {
   const server = new McpServer({ name: "notify-mcp", version: "1.0.0" });
 
   server.tool(
@@ -685,11 +733,12 @@ function createMcpServer(clientId: string) {
         .describe("low=email only; normal=desktop+telegram+email; high=all channels"),
     },
     async ({ message, priority }: { message: string; priority: "low" | "normal" | "high" }) => {
-      const summary = await sendNotification(message, priority, clientId);
-      if (inboxQueue.length === 0) {
+      const outbound = sessionTag ? `[${sessionTag}] ${message}` : message;
+      const summary = await sendNotification(outbound, priority, clientId);
+      const messages = drainInboxFor(sessionTag);
+      if (messages.length === 0) {
         return { content: [{ type: "text" as const, text: summary }] };
       }
-      const messages = inboxQueue.splice(0);
       log("·", "poll", `${messages.length} message(s) drained via notify`, clientId);
       const inbox = messages.map(m => `[${m.ts}] ${m.text}`).join("\n");
       return { content: [{ type: "text" as const, text: `${summary}\n\n⚠️ USER SENT YOU A MESSAGE — STOP AND RESPOND BEFORE CONTINUING:\n${inbox}` }] };
@@ -713,12 +762,16 @@ function createMcpServer(clientId: string) {
 
       log("→", "ask:telegram", question, clientId);
       if (cfg.telegram?.enabled && cfg.telegram.token && cfg.telegram.chatId) {
+        const askPrefix = sessionTag ? `❓ [${sessionTag}]` : `❓ [${clientId}]`;
+        const replyHint = sessionTag
+          ? `\n\nReply with: @${sessionTag} <your answer>`
+          : `\n\nReply to this message with your answer.`;
         await fetch(`https://api.telegram.org/bot${cfg.telegram.token}/sendMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             chat_id: cfg.telegram.chatId,
-            text: `❓ [${clientId}] ${question}\n\nReply to this message with your answer.`,
+            text: `${askPrefix} ${question}${replyHint}`,
           }),
         }).catch((err) => log("→", "ask:telegram", `ERROR: ${err}`, clientId));
       }
@@ -760,7 +813,7 @@ function createMcpServer(clientId: string) {
           pendingAsks.delete(token);
           reject(new Error(`No reply received within ${timeout_seconds}s`));
         }, timeout_seconds * 1000);
-        pendingAsks.set(token, { resolve, timer });
+        pendingAsks.set(token, { resolve, timer, tag: sessionTag });
       });
 
       log("←", "ask:reply", reply, clientId);
@@ -774,10 +827,10 @@ function createMcpServer(clientId: string) {
       "Returns queued messages and clears the queue. Returns 'inbox:empty' if nothing pending.",
     {},
     async () => {
-      if (inboxQueue.length === 0) {
+      const messages = drainInboxFor(sessionTag);
+      if (messages.length === 0) {
         return { content: [{ type: "text" as const, text: "inbox:empty" }] };
       }
-      const messages = inboxQueue.splice(0);
       log("·", "poll", `${messages.length} message(s) drained`, clientId);
       return {
         content: [{
@@ -801,13 +854,15 @@ app.all("/mcp", async (req, res) => {
     return;
   }
 
+  const rawTag = typeof req.query.tag === "string" ? req.query.tag : undefined;
+  const sessionTag = rawTag?.toLowerCase().replace(/[^a-z0-9_-]/g, "") || undefined;
   const newSessionId = randomUUID();
-  const clientId = `sess-${newSessionId.slice(0, 8)}`;
+  const clientId = sessionTag ?? `sess-${newSessionId.slice(0, 8)}`;
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => newSessionId });
   transport.onclose = () => {
     if (transport.sessionId) delete httpTransports[transport.sessionId];
   };
-  await createMcpServer(clientId).connect(transport);
+  await createMcpServer(clientId, sessionTag).connect(transport);
   await transport.handleRequest(req, res, req.body);
   if (transport.sessionId) httpTransports[transport.sessionId] = transport;
 });

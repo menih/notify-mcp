@@ -85,6 +85,7 @@ function showGmailSetup(email) {
   } else {
     $("gmail-guide").setAttribute("open", "");
   }
+  checkGcloud();
 }
 
 // ── Badges ────────────────────────────────────────────────────────────────
@@ -170,6 +171,99 @@ async function patch(update) {
   }
 }
 
+// ── gcloud auth ───────────────────────────────────────────────────────────
+
+async function checkGcloud() {
+  const res = await fetch("/api/gcloud/status");
+  const status = await res.json();
+  renderGcloudPanel(status);
+  return status;
+}
+
+function renderGcloudPanel(status) {
+  const panel = $("gcloud-auth-panel");
+  const row = $("gcloud-status-row");
+  panel.classList.remove("hidden");
+
+  if (!status.installed) {
+    row.innerHTML = `
+      <span class="dot dot-warn"></span>
+      <span class="status-text">gcloud CLI not installed —
+        <a href="https://cloud.google.com/sdk/docs/install" target="_blank">install it</a>
+        to auto-login, or enter credentials manually below.
+      </span>`;
+    return;
+  }
+
+  if (status.authenticated) {
+    row.innerHTML = `
+      <span class="dot dot-ok"></span>
+      <span class="status-text">gcloud logged in as</span>
+      <span class="status-account">${status.account}</span>`;
+    return;
+  }
+
+  row.innerHTML = `
+    <span class="dot dot-warn"></span>
+    <span class="status-text">gcloud not logged in</span>
+    <button class="btn btn-secondary" style="margin-left:auto;padding:4px 12px;font-size:12px"
+      onclick="gcloudLogin()">Login with Google</button>`;
+}
+
+async function gcloudLogin() {
+  const row = $("gcloud-status-row");
+  const logPanel = $("gcloud-log");
+
+  row.innerHTML = `<span class="dot dot-spin"></span>
+    <span class="status-text">Opening browser for Google login…</span>`;
+  logPanel.classList.remove("hidden");
+  logPanel.textContent = "";
+
+  const es = new EventSource("/api/gcloud/login");
+
+  es.onmessage = (e) => {
+    const { type, msg } = JSON.parse(e.data);
+
+    if (type === "already_authed") {
+      renderGcloudPanel({ installed: true, authenticated: true, account: msg });
+      logPanel.classList.add("hidden");
+      es.close();
+      return;
+    }
+
+    if (type === "done") {
+      renderGcloudPanel({ installed: true, authenticated: true, account: msg });
+      logPanel.classList.add("hidden");
+      toast("Logged in as " + msg, "ok");
+      es.close();
+      return;
+    }
+
+    if (type === "error") {
+      row.innerHTML = `<span class="dot dot-warn"></span>
+        <span class="status-text" style="color:var(--danger)">${msg}</span>`;
+      es.close();
+      return;
+    }
+
+    if (type === "open_browser") {
+      logPanel.textContent += "Browser opened for login. Complete auth there, then come back here.\n";
+      return;
+    }
+
+    if (type === "log") {
+      logPanel.textContent += msg + "\n";
+      logPanel.scrollTop = logPanel.scrollHeight;
+    }
+  };
+
+  es.onerror = () => {
+    row.innerHTML = `<span class="dot dot-warn"></span>
+      <span class="status-text" style="color:var(--danger)">Connection lost</span>`;
+    es.close();
+  };
+}
+
 // ── Google OAuth ──────────────────────────────────────────────────────────
 
 async function startGoogleAuth() {
@@ -237,10 +331,10 @@ function renderOsHint() {
   const ua = navigator.userAgent;
   const hint = $("os-hint");
   if (ua.includes("Mac")) {
-    hint.textContent = "macOS: System Settings → Notifications → Script Editor (or Terminal) → Allow notifications.";
+    hint.textContent = "macOS: allow notifications for Terminal in System Settings";
     hint.classList.add("visible");
   } else if (ua.includes("Linux")) {
-    hint.textContent = "Linux: requires libnotify (notify-send). Install with: sudo apt install libnotify-bin";
+    hint.textContent = "Linux: needs libnotify (sudo apt install libnotify-bin)";
     hint.classList.add("visible");
   }
 }

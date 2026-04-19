@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { fileURLToPath } from "url";
+import { spawnSync, spawn } from "child_process";
 import open from "open";
 import notifier from "node-notifier";
 import nodemailer from "nodemailer";
@@ -182,6 +183,78 @@ app.post("/api/test/email", async (_req, res) => {
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
+});
+
+// ── gcloud auth ───────────────────────────────────────────────────────────────
+
+function gcloudStatus(): { installed: boolean; authenticated: boolean; account?: string } {
+  const check = spawnSync("gcloud", ["--version"], { encoding: "utf-8" });
+  if (check.status !== 0) return { installed: false, authenticated: false };
+
+  const list = spawnSync(
+    "gcloud",
+    ["auth", "list", "--filter=status:ACTIVE", "--format=value(account)"],
+    { encoding: "utf-8" }
+  );
+  const account = list.stdout.trim().split("\n")[0];
+  return { installed: true, authenticated: !!account, account: account || undefined };
+}
+
+app.get("/api/gcloud/status", (_req, res) => {
+  res.json(gcloudStatus());
+});
+
+app.get("/api/gcloud/login", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  const send = (type: string, msg: string) =>
+    res.write(`data: ${JSON.stringify({ type, msg })}\n\n`);
+
+  const status = gcloudStatus();
+  if (!status.installed) {
+    send("error", "gcloud CLI not found. Install it from https://cloud.google.com/sdk/docs/install");
+    res.end();
+    return;
+  }
+  if (status.authenticated) {
+    send("already_authed", status.account!);
+    res.end();
+    return;
+  }
+
+  send("info", "Opening browser for Google login…");
+
+  const child = spawn("gcloud", ["auth", "login", "--brief"], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  child.stdout.on("data", (d: Buffer) => {
+    for (const line of d.toString().split("\n").filter(Boolean))
+      send("log", line);
+  });
+
+  child.stderr.on("data", (d: Buffer) => {
+    for (const line of d.toString().split("\n").filter(Boolean)) {
+      if (line.includes("Go to the following link"))
+        send("open_browser", line.replace("Go to the following link in your browser:", "").trim());
+      else
+        send("log", line);
+    }
+  });
+
+  child.on("close", (code) => {
+    if (code === 0) {
+      const after = gcloudStatus();
+      send("done", after.account ?? "Logged in");
+    } else {
+      send("error", `gcloud auth login exited with code ${code}`);
+    }
+    res.end();
+  });
+
+  req.on("close", () => child.kill());
 });
 
 // ── Google OAuth ──────────────────────────────────────────────────────────────

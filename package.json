@@ -1,6 +1,6 @@
 {
   "name": "omni-notify-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Multi-channel notification MCP server: desktop, Telegram, WhatsApp, SMS, and email — configurable via a web UI",
   "main": "dist/index.js",
   "type": "module",

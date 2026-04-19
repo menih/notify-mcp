@@ -479,9 +479,11 @@ async function sendNotification(message: string, priority: "low" | "normal" | "h
     }
     if (cfg.telegram?.enabled && cfg.telegram.token && cfg.telegram.chatId) {
       await send("telegram", async () => {
+        const body: Record<string, any> = { chat_id: cfg.telegram.chatId, text: message };
+        if (lastUserMessageId) body.reply_to_message_id = lastUserMessageId;
         const r = await fetch(`https://api.telegram.org/bot${cfg.telegram.token}/sendMessage`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ chat_id: cfg.telegram.chatId, text: message }),
+          body: JSON.stringify(body),
         });
         if (!r.ok) throw new Error(await r.text());
       });
@@ -537,8 +539,9 @@ function getLocalIp() {
 // ── Ask / reply + inbox system ────────────────────────────────────────────────
 
 const pendingAsks = new Map<string, { resolve: (v: string) => void; timer: NodeJS.Timeout }>();
-const inboxQueue: Array<{ text: string; ts: string }> = [];
+const inboxQueue: Array<{ text: string; ts: string; messageId?: number }> = [];
 let tgPollOffset = -1;
+let lastUserMessageId: number | undefined;
 
 async function initTgOffset(token: string): Promise<number> {
   const r = await fetch(`https://api.telegram.org/bot${token}/getUpdates?offset=-1&timeout=0`);
@@ -569,6 +572,7 @@ async function startTelegramListener() {
         const msg = update.message;
         if (msg?.chat?.id?.toString() === chatId && msg.text) {
           log("←", "telegram", msg.text);
+          lastUserMessageId = msg.message_id;
           const first = [...pendingAsks.entries()][0];
           if (first) {
             const [id, pending] = first;
@@ -577,8 +581,17 @@ async function startTelegramListener() {
             log("←", "ask:reply", msg.text);
             pending.resolve(msg.text);
           } else {
-            inboxQueue.push({ text: msg.text, ts: new Date().toISOString() });
+            inboxQueue.push({ text: msg.text, ts: new Date().toISOString(), messageId: msg.message_id });
             log("·", "inbox", msg.text);
+            // Acknowledge receipt so user knows the message was queued
+            fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: chatId,
+                text: `📬 Got it. The agent will see this when it next runs.`,
+                reply_to_message_id: msg.message_id,
+              }),
+            }).catch(() => {});
           }
         }
       }

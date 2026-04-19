@@ -23,7 +23,8 @@ const ADC_PATH = join(homedir(), ".config", "gcloud", "application_default_crede
 function defaultConfig() {
   return {
     desktop: { enabled: false },
-    whatsapp: { enabled: false, phone: "", apikey: "" },
+    telegram: { enabled: false, token: "", chatId: "" },
+    whatsapp: { enabled: false, instanceId: "", apiToken: "", phone: "" },
     sms: { enabled: false, accountSid: "", authToken: "", from: "", to: "" },
     email: { enabled: false, to: "" },
   };
@@ -48,7 +49,8 @@ function maskSecrets(config: Record<string, any>): Record<string, any> {
   if (c.email?.refreshToken) c.email.refreshToken = MASKED;
   if (c.email?.accessToken) c.email.accessToken = MASKED;
   if (c.sms?.authToken) c.sms.authToken = MASKED;
-  if (c.whatsapp?.apikey) c.whatsapp.apikey = MASKED;
+  if (c.telegram?.token) c.telegram.token = MASKED;
+  if (c.whatsapp?.apiToken) c.whatsapp.apiToken = MASKED;
   return c;
 }
 
@@ -57,7 +59,7 @@ function mergePreservingSecrets(
   update: Record<string, any>
 ): Record<string, any> {
   const merged: Record<string, any> = { ...defaultConfig(), ...existing };
-  for (const section of ["desktop", "whatsapp", "sms", "email"] as const) {
+  for (const section of ["desktop", "telegram", "whatsapp", "sms", "email"] as const) {
     merged[section] = { ...(merged[section] || {}), ...(update[section] || {}) };
   }
   // Don't overwrite real values with masked placeholders
@@ -72,7 +74,8 @@ function mergePreservingSecrets(
   guard(["email", "refreshToken"]);
   guard(["email", "accessToken"]);
   guard(["sms", "authToken"]);
-  guard(["whatsapp", "apikey"]);
+  guard(["telegram", "token"]);
+  guard(["whatsapp", "apiToken"]);
   return merged;
 }
 
@@ -109,17 +112,63 @@ app.post("/api/test/desktop", (_req, res) => {
   );
 });
 
-app.post("/api/test/whatsapp", async (_req, res) => {
+app.post("/api/test/telegram", async (_req, res) => {
   const config = loadConfig();
-  const { phone, apikey } = config.whatsapp ?? {};
-  if (!phone || !apikey) {
-    res.status(400).json({ error: "Phone and API key are required." });
+  const { token, chatId } = config.telegram ?? {};
+  if (!token || !chatId) {
+    res.status(400).json({ error: "Token and Chat ID are required." });
     return;
   }
   try {
-    const url = `https://api.callmebot.com/whatsapp.php?phone=${phone}&text=${encodeURIComponent("Test from Claude Notify — WhatsApp is working!")}&apikey=${apikey}`;
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`Callmebot ${r.status}: ${await r.text()}`);
+    const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text: "Test from Claude Notify — Telegram is working!" }),
+    });
+    if (!r.ok) throw new Error(`Telegram ${r.status}: ${await r.text()}`);
+    res.json({ ok: true, message: "Telegram message sent!" });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get("/api/telegram/chatid", async (req, res) => {
+  const token = (req.query.token as string) ?? loadConfig().telegram?.token;
+  if (!token || token === "••••••••") {
+    res.status(400).json({ error: "Token required" });
+    return;
+  }
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${token}/getUpdates`);
+    const json = await r.json() as any;
+    const chatId = json.result?.[0]?.message?.chat?.id?.toString();
+    if (!chatId) {
+      res.status(404).json({ error: "No messages yet — send any message to your bot first" });
+      return;
+    }
+    res.json({ chatId });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/api/test/whatsapp", async (_req, res) => {
+  const config = loadConfig();
+  const { instanceId, apiToken, phone } = config.whatsapp ?? {};
+  if (!instanceId || !apiToken || !phone) {
+    res.status(400).json({ error: "Instance ID, API token and phone are required." });
+    return;
+  }
+  try {
+    const r = await fetch(
+      `https://api.green-api.com/waInstance${instanceId}/sendMessage/${apiToken}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatId: `${phone}@c.us`, message: "Test from Claude Notify — WhatsApp is working!" }),
+      }
+    );
+    if (!r.ok) throw new Error(`Green API ${r.status}: ${await r.text()}`);
     res.json({ ok: true, message: "WhatsApp message sent!" });
   } catch (err) {
     res.status(500).json({ error: String(err) });

@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { loadConfig } from "./config.js";
 import { sendDesktop } from "./channels/desktop.js";
+import { sendTelegram } from "./channels/telegram.js";
 import { sendWhatsApp } from "./channels/whatsapp.js";
 import { sendSms } from "./channels/sms.js";
 import { sendEmail } from "./channels/email.js";
@@ -42,6 +43,7 @@ server.tool(
 
     if (priority === "normal" || priority === "high") {
       await send("desktop", () => sendDesktop(config.desktop, message));
+      await send("telegram", () => sendTelegram(config.telegram, message));
     }
 
     if (priority === "high") {

@@ -6,10 +6,17 @@ export interface DesktopConfig {
   enabled: boolean;
 }
 
+export interface TelegramConfig {
+  enabled: boolean;
+  token: string;
+  chatId: string;
+}
+
 export interface WhatsAppConfig {
   enabled: boolean;
+  instanceId: string;
+  apiToken: string;
   phone: string;
-  apikey: string;
 }
 
 export interface SmsConfig {
@@ -40,6 +47,7 @@ export interface EmailConfig {
 
 export interface Config {
   desktop: DesktopConfig;
+  telegram: TelegramConfig;
   whatsapp: WhatsAppConfig;
   sms: SmsConfig;
   email: EmailConfig;

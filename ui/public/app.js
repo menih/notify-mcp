@@ -52,11 +52,18 @@ function populateForm() {
     showGmailSetup(email);
   }
 
+  // Telegram
+  const tg = config.telegram ?? {};
+  $("telegram-enabled").checked = !!tg.enabled;
+  $("telegram-token").value = tg.token ?? "";
+  $("telegram-chatid").value = tg.chatId ?? "";
+
   // WhatsApp
   const wa = config.whatsapp ?? {};
   $("whatsapp-enabled").checked = !!wa.enabled;
+  $("whatsapp-instance").value = wa.instanceId ?? "";
+  $("whatsapp-token").value = wa.apiToken ?? "";
   $("whatsapp-phone").value = wa.phone ?? "";
-  $("whatsapp-apikey").value = wa.apikey ?? "";
 
   // SMS
   const sms = config.sms ?? {};
@@ -92,10 +99,15 @@ function updateBadges() {
     email.connectedEmail ? "ok" : email.clientId ? "warn" : "idle",
     email.connectedEmail ? "Connected" : email.clientId ? "Credentials saved" : "Not configured");
 
+  const tg = config.telegram ?? {};
+  setBadge("telegram",
+    tg.enabled && tg.token && tg.chatId ? "ok" : tg.token ? "warn" : "idle",
+    tg.enabled && tg.token && tg.chatId ? "Configured" : tg.token ? "Incomplete" : "Not configured");
+
   const wa = config.whatsapp ?? {};
   setBadge("whatsapp",
-    wa.enabled && wa.phone && wa.apikey ? "ok" : wa.phone ? "warn" : "idle",
-    wa.enabled && wa.phone && wa.apikey ? "Configured" : wa.phone ? "Incomplete" : "Not configured");
+    wa.enabled && wa.instanceId && wa.phone ? "ok" : wa.instanceId ? "warn" : "idle",
+    wa.enabled && wa.instanceId && wa.phone ? "Configured" : wa.instanceId ? "Incomplete" : "Not configured");
 
   const sms = config.sms ?? {};
   setBadge("sms",
@@ -124,12 +136,39 @@ async function saveEmail() {
   clearDirty("email");
 }
 
+async function saveTelegram() {
+  await patch({
+    telegram: {
+      enabled: $("telegram-enabled").checked,
+      token: $("telegram-token").value.trim(),
+      chatId: $("telegram-chatid").value.trim(),
+    },
+  });
+  clearDirty("telegram");
+}
+
+async function detectChatId() {
+  const token = $("telegram-token").value.trim();
+  if (!token) { toast("Enter bot token first.", "error"); return; }
+  try {
+    const res = await fetch(`/api/telegram/chatid?token=${encodeURIComponent(token)}`);
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error);
+    $("telegram-chatid").value = json.chatId;
+    markDirty("telegram");
+    toast("Chat ID detected: " + json.chatId, "ok");
+  } catch (e) {
+    toast("" + e, "error");
+  }
+}
+
 async function saveWhatsApp() {
   await patch({
     whatsapp: {
       enabled: $("whatsapp-enabled").checked,
+      instanceId: $("whatsapp-instance").value.trim(),
+      apiToken: $("whatsapp-token").value.trim(),
       phone: $("whatsapp-phone").value.trim(),
-      apikey: $("whatsapp-apikey").value.trim(),
     },
   });
   clearDirty("whatsapp");

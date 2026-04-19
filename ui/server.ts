@@ -18,6 +18,7 @@ const PUBLIC_DIR = join(fileURLToPath(new URL("../../ui/public", import.meta.url
 
 const CONFIG_DIR = join(homedir(), ".notify-mcp");
 const CONFIG_PATH = join(CONFIG_DIR, "config.json");
+const ADC_PATH = join(homedir(), ".config", "gcloud", "application_default_credentials.json");
 
 function defaultConfig() {
   return {
@@ -183,6 +184,118 @@ app.post("/api/test/email", async (_req, res) => {
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
+});
+
+// ── Google ADC auto-setup ─────────────────────────────────────────────────────
+
+async function adcEmail(): Promise<string | null> {
+  if (!existsSync(ADC_PATH)) return null;
+  try {
+    const adc = JSON.parse(readFileSync(ADC_PATH, "utf-8"));
+    if (!adc.refresh_token || !adc.client_id || !adc.client_secret) return null;
+    const oauth2Client = new google.auth.OAuth2(adc.client_id, adc.client_secret);
+    oauth2Client.setCredentials({ refresh_token: adc.refresh_token });
+    const oauth2 = google.oauth2({ version: "v2", auth: oauth2Client });
+    const { data } = await oauth2.userinfo.get();
+    return data.email ?? null;
+  } catch {
+    return null;
+  }
+}
+
+app.get("/api/google/autosetup", async (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  const send = (type: string, msg: string) =>
+    res.write(`data: ${JSON.stringify({ type, msg })}\n\n`);
+
+  const gcloud = gcloudStatus();
+  if (!gcloud.installed) {
+    send("error", "gcloud not found. Run: brew install --cask google-cloud-sdk");
+    res.end();
+    return;
+  }
+
+  send("log", "Checking existing credentials…");
+
+  const existingEmail = await adcEmail();
+  if (existingEmail) {
+    send("log", `Already authenticated as ${existingEmail} — saving config…`);
+    const adc = JSON.parse(readFileSync(ADC_PATH, "utf-8"));
+    const cfg = loadConfig();
+    cfg.email = {
+      ...cfg.email,
+      clientId: adc.client_id,
+      clientSecret: adc.client_secret,
+      refreshToken: adc.refresh_token,
+      connectedEmail: existingEmail,
+      to: cfg.email?.to || existingEmail,
+      enabled: true,
+    };
+    saveConfig(cfg);
+    send("done", existingEmail);
+    res.end();
+    return;
+  }
+
+  send("log", "Opening browser for Google login…");
+
+  const child = spawn("gcloud", [
+    "auth", "application-default", "login",
+    "--scopes=openid,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/userinfo.profile,https://mail.google.com/",
+  ], { stdio: ["ignore", "pipe", "pipe"] });
+
+  child.stdout.on("data", (d: Buffer) => {
+    for (const line of d.toString().split("\n").filter(Boolean))
+      send("log", line);
+  });
+
+  child.stderr.on("data", (d: Buffer) => {
+    for (const line of d.toString().split("\n").filter(Boolean))
+      send("log", line);
+  });
+
+  child.on("close", async (code) => {
+    if (code !== 0) {
+      send("error", `gcloud auth exited with code ${code}`);
+      res.end();
+      return;
+    }
+    try {
+      const adc = JSON.parse(readFileSync(ADC_PATH, "utf-8"));
+      if (!adc.refresh_token || !adc.client_id || !adc.client_secret) {
+        send("error", "ADC file missing credentials after login");
+        res.end();
+        return;
+      }
+      send("log", "Fetching your email address…");
+      const email = await adcEmail();
+      if (!email) {
+        send("error", "Could not retrieve email from Google");
+        res.end();
+        return;
+      }
+      const cfg = loadConfig();
+      cfg.email = {
+        ...cfg.email,
+        clientId: adc.client_id,
+        clientSecret: adc.client_secret,
+        refreshToken: adc.refresh_token,
+        connectedEmail: email,
+        to: cfg.email?.to || email,
+        enabled: true,
+      };
+      saveConfig(cfg);
+      send("done", email);
+    } catch (err) {
+      send("error", String(err));
+    }
+    res.end();
+  });
+
+  req.on("close", () => child.kill());
 });
 
 // ── gcloud auth ───────────────────────────────────────────────────────────────

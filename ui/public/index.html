@@ -75,8 +75,15 @@
 
           <!-- Setup -->
           <div id="gmail-setup-state">
+            <div class="actions" style="margin-top:0;padding-top:0">
+              <button class="btn btn-sm btn-primary" style="flex:1;justify-content:center" onclick="autoSetupGmail()">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                Auto-setup Gmail
+              </button>
+            </div>
+            <div id="autosetup-log" class="log-panel hidden"></div>
             <details class="guide" id="gmail-guide">
-              <summary>Setup instructions</summary>
+              <summary>Manual setup (advanced)</summary>
               <ol>
                 <li><a href="https://console.cloud.google.com" target="_blank">Google Cloud Console</a> → create project</li>
                 <li>APIs &amp; Services → Library → enable <b>Gmail API</b></li>

@@ -73,6 +73,7 @@ function showGmailConnected(email, to) {
   $("gmail-setup-state").classList.add("hidden");
   $("gmail-connected-email").textContent = email;
   $("gmail-to-connected").value = to ?? email;
+  $("email-enabled").checked = !!config.email?.enabled;
 }
 
 function showGmailSetup(email) {
@@ -117,11 +118,9 @@ function saveDesktop() {
 }
 
 async function saveEmail() {
-  const isConnected = !!config.email?.connectedEmail;
-  const to = isConnected
-    ? $("gmail-to-connected").value.trim()
-    : $("gmail-to").value.trim();
-  await patch({ email: { to } });
+  const to = $("gmail-to-connected").value.trim();
+  const enabled = $("email-enabled").checked;
+  await patch({ email: { to, enabled } });
   clearDirty("email");
 }
 

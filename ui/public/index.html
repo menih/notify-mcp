@@ -53,6 +53,11 @@
           <!-- Connected -->
           <div id="gmail-connected-state" class="hidden">
             <div class="actions">
+              <label class="toggle-wrap">
+                <input type="checkbox" id="email-enabled" oninput="markDirty('email')">
+                <span class="toggle"></span>
+              </label>
+              <span class="toggle-lbl">Enable</span>
               <button class="btn btn-sm btn-primary" id="save-email-btn" onclick="saveEmail()">Save</button>
               <button class="btn btn-sm btn-ghost" onclick="testChannel('email')">Test</button>
               <button class="btn btn-sm btn-danger" onclick="disconnectGmail()">Disconnect</button>

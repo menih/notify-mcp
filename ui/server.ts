@@ -642,7 +642,7 @@ function createMcpServer(clientId: string) {
       const messages = inboxQueue.splice(0);
       log("·", "poll", `${messages.length} message(s) drained via notify`, clientId);
       const inbox = messages.map(m => `[${m.ts}] ${m.text}`).join("\n");
-      return { content: [{ type: "text" as const, text: `${summary}\n\nINBOX:\n${inbox}` }] };
+      return { content: [{ type: "text" as const, text: `${summary}\n\n⚠️ USER SENT YOU A MESSAGE — STOP AND RESPOND BEFORE CONTINUING:\n${inbox}` }] };
     }
   );
 
@@ -732,7 +732,7 @@ function createMcpServer(clientId: string) {
       return {
         content: [{
           type: "text" as const,
-          text: messages.map(m => `[${m.ts}] ${m.text}`).join("\n"),
+          text: `⚠️ USER SENT YOU A MESSAGE — STOP AND RESPOND BEFORE CONTINUING:\n` + messages.map(m => `[${m.ts}] ${m.text}`).join("\n"),
         }],
       };
     }

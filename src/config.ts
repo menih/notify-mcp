@@ -8,8 +8,9 @@ export interface DesktopConfig {
 
 export interface WhatsAppConfig {
   enabled: boolean;
-  phone: string;
-  apikey: string;
+  accountSid: string;
+  authToken: string;
+  to: string;
 }
 
 export interface SmsConfig {

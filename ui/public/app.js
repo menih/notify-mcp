@@ -55,8 +55,9 @@ function populateForm() {
   // WhatsApp
   const wa = config.whatsapp ?? {};
   $("whatsapp-enabled").checked = !!wa.enabled;
-  $("whatsapp-phone").value = wa.phone ?? "";
-  $("whatsapp-apikey").value = wa.apikey ?? "";
+  $("whatsapp-sid").value = wa.accountSid ?? "";
+  $("whatsapp-token").value = wa.authToken ?? "";
+  $("whatsapp-to").value = wa.to ?? "";
 
   // SMS
   const sms = config.sms ?? {};
@@ -94,8 +95,8 @@ function updateBadges() {
 
   const wa = config.whatsapp ?? {};
   setBadge("whatsapp",
-    wa.enabled && wa.phone && wa.apikey ? "ok" : wa.phone ? "warn" : "idle",
-    wa.enabled && wa.phone && wa.apikey ? "Configured" : wa.phone ? "Incomplete" : "Not configured");
+    wa.enabled && wa.accountSid && wa.to ? "ok" : wa.accountSid ? "warn" : "idle",
+    wa.enabled && wa.accountSid && wa.to ? "Configured" : wa.accountSid ? "Incomplete" : "Not configured");
 
   const sms = config.sms ?? {};
   setBadge("sms",
@@ -128,8 +129,9 @@ async function saveWhatsApp() {
   await patch({
     whatsapp: {
       enabled: $("whatsapp-enabled").checked,
-      phone: $("whatsapp-phone").value.trim(),
-      apikey: $("whatsapp-apikey").value.trim(),
+      accountSid: $("whatsapp-sid").value.trim(),
+      authToken: $("whatsapp-token").value.trim(),
+      to: $("whatsapp-to").value.trim(),
     },
   });
   clearDirty("whatsapp");

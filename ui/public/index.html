@@ -15,7 +15,6 @@
       Claude Notify
     </div>
 
-    <!-- Desktop lives in the header bar -->
     <div class="desktop-bar" id="card-desktop">
       <div class="channel-icon desktop-icon">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
@@ -45,7 +44,7 @@
             <div class="channel-icon gmail-icon">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
             </div>
-            <span class="ch-name">Email</span><span class="tag">Gmail OAuth</span>
+            <span class="ch-name">Email</span><span class="tag">Gmail</span>
           </div>
           <span class="badge badge-idle" id="badge-email">Not configured</span>
         </div>
@@ -53,36 +52,34 @@
         <div class="card-body">
           <!-- Connected -->
           <div id="gmail-connected-state" class="hidden">
-            <div class="ok-banner">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-              <strong id="gmail-connected-email"></strong>
-            </div>
-            <div class="row2">
-              <div class="fg"><label>Send to</label><input type="email" id="gmail-to-connected" placeholder="you@gmail.com" oninput="markDirty('email')"></div>
-            </div>
             <div class="actions">
               <button class="btn btn-sm btn-primary" id="save-email-btn" onclick="saveEmail()">Save</button>
               <button class="btn btn-sm btn-ghost" onclick="testChannel('email')">Test</button>
               <button class="btn btn-sm btn-danger" onclick="disconnectGmail()">Disconnect</button>
             </div>
+            <div class="ok-banner">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <strong id="gmail-connected-email"></strong>
+            </div>
+            <div class="fg"><label>Send to</label><input type="email" id="gmail-to-connected" placeholder="you@gmail.com" oninput="markDirty('email')"></div>
           </div>
 
           <!-- Setup -->
           <div id="gmail-setup-state">
+            <div class="actions">
+              <button class="btn btn-sm btn-ghost" onclick="openAppPasswords()">Open Google Account</button>
+              <button class="btn btn-sm btn-primary" onclick="saveAppPassword()">Connect</button>
+            </div>
             <details class="guide" id="gmail-guide">
               <summary>How to get an App Password</summary>
               <ol>
-                <li>Click <b>Open Google Account</b> below (needs 2FA enabled)</li>
+                <li>Click <b>Open Google Account</b> above (needs 2FA enabled)</li>
                 <li>Select app: <b>Mail</b>, device: <b>Mac</b> → Generate</li>
                 <li>Copy the 16-char password and paste below</li>
               </ol>
             </details>
             <div class="fg"><label>Gmail address</label><input type="email" id="gmail-address" placeholder="you@gmail.com"></div>
             <div class="fg"><label>App Password (16 chars)</label><input type="password" id="gmail-app-password" placeholder="xxxx xxxx xxxx xxxx"></div>
-            <div class="actions">
-              <button class="btn btn-sm btn-ghost" onclick="openAppPasswords()">Open Google Account</button>
-              <button class="btn btn-sm btn-primary" onclick="saveAppPassword()">Connect</button>
-            </div>
           </div>
         </div>
       </div>
@@ -99,13 +96,22 @@
           <span class="badge badge-idle" id="badge-telegram">Not configured</span>
         </div>
         <div class="card-body">
+          <div class="actions">
+            <label class="toggle-wrap">
+              <input type="checkbox" id="telegram-enabled" oninput="markDirty('telegram')">
+              <span class="toggle"></span>
+            </label>
+            <span class="toggle-lbl">Enable</span>
+            <button class="btn btn-sm btn-primary" id="save-telegram-btn" onclick="saveTelegram()">Save</button>
+            <button class="btn btn-sm btn-ghost" onclick="testChannel('telegram')">Test</button>
+          </div>
           <details class="guide">
             <summary>Create a bot (2 min)</summary>
             <ol>
               <li>Open Telegram → search <b>@BotFather</b></li>
               <li>Send <code class="cp" onclick="copyText(this)">/newbot</code> → follow prompts → copy token</li>
               <li>Start a chat with your new bot (send any message)</li>
-              <li>Paste token below → click <b>Detect Chat ID</b></li>
+              <li>Paste token below → click <b>Detect</b></li>
             </ol>
           </details>
           <div class="fg"><label>Bot Token</label><input type="password" id="telegram-token" placeholder="123456:ABC-DEF…" oninput="markDirty('telegram')"></div>
@@ -115,15 +121,6 @@
               <input type="text" id="telegram-chatid" placeholder="auto-detected" oninput="markDirty('telegram')" style="flex:1">
               <button class="btn btn-sm btn-ghost" onclick="detectChatId()">Detect</button>
             </div>
-          </div>
-          <div class="actions">
-            <label class="toggle-wrap">
-              <input type="checkbox" id="telegram-enabled" oninput="markDirty('telegram')">
-              <span class="toggle"></span>
-            </label>
-            <span class="toggle-lbl">Enable</span>
-            <button class="btn btn-sm btn-primary" id="save-telegram-btn" onclick="saveTelegram()">Save</button>
-            <button class="btn btn-sm btn-ghost" onclick="testChannel('telegram')">Test</button>
           </div>
         </div>
       </div>
@@ -140,6 +137,15 @@
           <span class="badge badge-idle" id="badge-whatsapp">Not configured</span>
         </div>
         <div class="card-body">
+          <div class="actions">
+            <label class="toggle-wrap">
+              <input type="checkbox" id="whatsapp-enabled" oninput="markDirty('whatsapp')">
+              <span class="toggle"></span>
+            </label>
+            <span class="toggle-lbl">Enable</span>
+            <button class="btn btn-sm btn-primary" id="save-whatsapp-btn" onclick="saveWhatsApp()">Save</button>
+            <button class="btn btn-sm btn-ghost" onclick="testChannel('whatsapp')">Test</button>
+          </div>
           <details class="guide">
             <summary>Setup Green API (free)</summary>
             <ol>
@@ -154,15 +160,6 @@
             <div class="fg"><label>API Token</label><input type="password" id="whatsapp-token" placeholder="your-api-token" oninput="markDirty('whatsapp')"></div>
           </div>
           <div class="fg"><label>Your WhatsApp number</label><input type="tel" id="whatsapp-phone" placeholder="+1 234 567 8900" oninput="markDirty('whatsapp')"></div>
-          <div class="actions">
-            <label class="toggle-wrap">
-              <input type="checkbox" id="whatsapp-enabled" oninput="markDirty('whatsapp')">
-              <span class="toggle"></span>
-            </label>
-            <span class="toggle-lbl">Enable</span>
-            <button class="btn btn-sm btn-primary" id="save-whatsapp-btn" onclick="saveWhatsApp()">Save</button>
-            <button class="btn btn-sm btn-ghost" onclick="testChannel('whatsapp')">Test</button>
-          </div>
         </div>
       </div>
 
@@ -178,6 +175,15 @@
           <span class="badge badge-idle" id="badge-sms">Not configured</span>
         </div>
         <div class="card-body">
+          <div class="actions">
+            <label class="toggle-wrap">
+              <input type="checkbox" id="sms-enabled" oninput="markDirty('sms')">
+              <span class="toggle"></span>
+            </label>
+            <span class="toggle-lbl">Enable</span>
+            <button class="btn btn-sm btn-primary" id="save-sms-btn" onclick="saveSms()">Save</button>
+            <button class="btn btn-sm btn-ghost" onclick="testChannel('sms')">Test</button>
+          </div>
           <details class="guide">
             <summary>Get Twilio credentials</summary>
             <ol>
@@ -191,15 +197,6 @@
             <div class="fg"><label>Auth Token</label><input type="password" id="sms-token" placeholder="••••••••••••••••" oninput="markDirty('sms')"></div>
             <div class="fg"><label>From (Twilio)</label><input type="tel" id="sms-from" placeholder="+1 555 000 0000" oninput="markDirty('sms')"></div>
             <div class="fg"><label>To (your number)</label><input type="tel" id="sms-to" placeholder="+1 234 567 8900" oninput="markDirty('sms')"></div>
-          </div>
-          <div class="actions">
-            <label class="toggle-wrap">
-              <input type="checkbox" id="sms-enabled" oninput="markDirty('sms')">
-              <span class="toggle"></span>
-            </label>
-            <span class="toggle-lbl">Enable</span>
-            <button class="btn btn-sm btn-primary" id="save-sms-btn" onclick="saveSms()">Save</button>
-            <button class="btn btn-sm btn-ghost" onclick="testChannel('sms')">Test</button>
           </div>
         </div>
       </div>

@@ -305,8 +305,7 @@ input:focus {
   align-items: center;
   gap: 7px;
   flex-wrap: wrap;
-  margin-top: auto;
-  padding-top: 2px;
+  padding-bottom: 4px;
 }
 
 .btn {

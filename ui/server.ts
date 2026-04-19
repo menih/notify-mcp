@@ -23,7 +23,7 @@ const ADC_PATH = join(homedir(), ".config", "gcloud", "application_default_crede
 function defaultConfig() {
   return {
     desktop: { enabled: false },
-    whatsapp: { enabled: false, accountSid: "", authToken: "", to: "" },
+    whatsapp: { enabled: false, phone: "", apikey: "" },
     sms: { enabled: false, accountSid: "", authToken: "", from: "", to: "" },
     email: { enabled: false, to: "" },
   };
@@ -48,7 +48,7 @@ function maskSecrets(config: Record<string, any>): Record<string, any> {
   if (c.email?.refreshToken) c.email.refreshToken = MASKED;
   if (c.email?.accessToken) c.email.accessToken = MASKED;
   if (c.sms?.authToken) c.sms.authToken = MASKED;
-  if (c.whatsapp?.authToken) c.whatsapp.authToken = MASKED;
+  if (c.whatsapp?.apikey) c.whatsapp.apikey = MASKED;
   return c;
 }
 
@@ -72,7 +72,7 @@ function mergePreservingSecrets(
   guard(["email", "refreshToken"]);
   guard(["email", "accessToken"]);
   guard(["sms", "authToken"]);
-  guard(["whatsapp", "authToken"]);
+  guard(["whatsapp", "apikey"]);
   return merged;
 }
 
@@ -111,18 +111,15 @@ app.post("/api/test/desktop", (_req, res) => {
 
 app.post("/api/test/whatsapp", async (_req, res) => {
   const config = loadConfig();
-  const { accountSid, authToken, to } = config.whatsapp ?? {};
-  if (!accountSid || !authToken || !to) {
-    res.status(400).json({ error: "WhatsApp not configured." });
+  const { phone, apikey } = config.whatsapp ?? {};
+  if (!phone || !apikey) {
+    res.status(400).json({ error: "Phone and API key are required." });
     return;
   }
   try {
-    const client = twilio(accountSid, authToken);
-    await client.messages.create({
-      body: "Test from Claude Notify — WhatsApp is working!",
-      from: "whatsapp:+14155238886",
-      to: `whatsapp:${to}`,
-    });
+    const url = `https://api.callmebot.com/whatsapp.php?phone=${phone}&text=${encodeURIComponent("Test from Claude Notify — WhatsApp is working!")}&apikey=${apikey}`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`Callmebot ${r.status}: ${await r.text()}`);
     res.json({ ok: true, message: "WhatsApp message sent!" });
   } catch (err) {
     res.status(500).json({ error: String(err) });

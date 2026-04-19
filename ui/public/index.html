@@ -94,24 +94,22 @@
             <div class="channel-icon whatsapp-icon">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
             </div>
-            <span class="ch-name">WhatsApp</span><span class="tag">Twilio</span>
+            <span class="ch-name">WhatsApp</span><span class="tag">Callmebot</span>
           </div>
           <span class="badge badge-idle" id="badge-whatsapp">Not configured</span>
         </div>
         <div class="card-body">
           <details class="guide">
-            <summary>Setup (uses same Twilio account as SMS)</summary>
+            <summary>Get free API key</summary>
             <ol>
-              <li>In Twilio Console → Messaging → Try it out → Send a WhatsApp message</li>
-              <li>Join sandbox: send <code class="cp" onclick="copyText(this)">join &lt;your-keyword&gt;</code> to <code class="cp" onclick="copyText(this)">+1 415 523 8886</code> on WhatsApp</li>
-              <li>Enter same Account SID + Auth Token as SMS, plus your number below</li>
+              <li>Send <code class="cp" onclick="copyText(this)">I allow callmebot to send me messages</code> to <code class="cp" onclick="copyText(this)">+34 644 99 26 98</code> on WhatsApp</li>
+              <li>API key arrives in ~1 min via WhatsApp</li>
             </ol>
           </details>
           <div class="row2">
-            <div class="fg"><label>Account SID</label><input type="text" id="whatsapp-sid" placeholder="ACxxxxxxxxxxxxxxxx" oninput="markDirty('whatsapp')"></div>
-            <div class="fg"><label>Auth Token</label><input type="password" id="whatsapp-token" placeholder="••••••••••••••••" oninput="markDirty('whatsapp')"></div>
+            <div class="fg"><label>Phone (+country code)</label><input type="tel" id="whatsapp-phone" placeholder="+1 234 567 8900" oninput="markDirty('whatsapp')"></div>
+            <div class="fg"><label>API key</label><input type="text" id="whatsapp-apikey" placeholder="123456" oninput="markDirty('whatsapp')"></div>
           </div>
-          <div class="fg"><label>Your WhatsApp number</label><input type="tel" id="whatsapp-to" placeholder="+1 234 567 8900" oninput="markDirty('whatsapp')"></div>
           <div class="actions">
             <label class="toggle-wrap">
               <input type="checkbox" id="whatsapp-enabled" oninput="markDirty('whatsapp')">

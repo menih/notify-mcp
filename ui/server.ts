@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import express from "express";
 import { google } from "googleapis";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
@@ -490,6 +491,80 @@ async function sendNotification(message: string, priority: "low" | "normal" | "h
   ].filter(Boolean).join(" | ") || "No channels delivered";
 }
 
+function getLocalIp() {
+  for (const nets of Object.values(networkInterfaces())) {
+    for (const net of nets ?? []) {
+      if (net.family === "IPv4" && !net.internal) return net.address;
+    }
+  }
+  return "localhost";
+}
+
+// ── Ask / reply system ────────────────────────────────────────────────────────
+
+const pendingAsks = new Map<string, { resolve: (v: string) => void; timer: NodeJS.Timeout }>();
+let tgPollOffset = 0;
+let tgPollActive = false;
+
+async function pollTelegram() {
+  if (tgPollActive) return;
+  tgPollActive = true;
+  while (pendingAsks.size > 0) {
+    try {
+      const cfg = loadConfig();
+      const { token, chatId } = cfg.telegram ?? {};
+      if (!token || !chatId) break;
+      const r = await fetch(
+        `https://api.telegram.org/bot${token}/getUpdates?offset=${tgPollOffset}&timeout=10`
+      );
+      const json = await r.json() as any;
+      for (const update of json.result ?? []) {
+        tgPollOffset = update.update_id + 1;
+        const msg = update.message;
+        if (msg?.chat?.id?.toString() === chatId && msg.text) {
+          const first = [...pendingAsks.entries()][0];
+          if (first) {
+            const [id, pending] = first;
+            clearTimeout(pending.timer);
+            pendingAsks.delete(id);
+            pending.resolve(msg.text);
+          }
+        }
+      }
+    } catch {
+      await new Promise(r => setTimeout(r, 2000));
+    }
+  }
+  tgPollActive = false;
+}
+
+app.get("/reply/:token", (req, res) => {
+  const pending = pendingAsks.get(req.params.token);
+  res.send(`<!DOCTYPE html><html><head><title>Reply to Claude</title>
+<style>body{font-family:sans-serif;background:#0a0a0b;color:#f0f0f0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
+.box{background:#111113;border:1px solid #222226;border-radius:9px;padding:24px;max-width:500px;width:90%}
+h2{color:#7c6dfa;margin:0 0 16px}textarea{width:100%;background:#0d0d10;border:1px solid #222226;border-radius:7px;color:#f0f0f0;padding:8px;font-size:14px;resize:vertical;min-height:80px;box-sizing:border-box}
+button{background:#7c6dfa;color:white;border:none;border-radius:7px;padding:8px 20px;font-size:14px;cursor:pointer;margin-top:10px}
+.ok{color:#10b981;margin-top:12px}.err{color:#ef4444}</style></head>
+<body><div class="box">${pending
+    ? `<h2>Reply to Claude</h2><textarea id="r" placeholder="Type your response…"></textarea>
+       <button onclick="send()">Send</button><div id="s"></div>
+       <script>async function send(){const r=document.getElementById('r').value.trim();if(!r)return;
+       const res=await fetch('/reply/${req.params.token}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({response:r})});
+       const el=document.getElementById('s');el.textContent=res.ok?'✓ Sent!':'Error';el.className=res.ok?'ok':'err';}</script>`
+    : `<h2>Expired</h2><p class="err">This link has already been used or timed out.</p>`
+  }</div></body></html>`);
+});
+
+app.post("/reply/:token", (req, res) => {
+  const pending = pendingAsks.get(req.params.token);
+  if (!pending) { res.status(404).json({ error: "Expired" }); return; }
+  clearTimeout(pending.timer);
+  pendingAsks.delete(req.params.token);
+  pending.resolve(req.body.response as string);
+  res.json({ ok: true });
+});
+
 function createMcpServer() {
   const server = new McpServer({ name: "notify-mcp", version: "1.0.0" });
   server.tool(
@@ -506,6 +581,77 @@ function createMcpServer() {
       return { content: [{ type: "text" as const, text: summary }] };
     }
   );
+
+  server.tool(
+    "ask",
+    "Send a question and wait for the user's reply via Telegram or email. " +
+      "Use when Claude needs a decision before continuing — e.g. 'Should I delete these files?'",
+    {
+      question: z.string().max(500).describe("The question to ask the user"),
+      timeout_seconds: z.number().min(30).max(3600).default(300)
+        .describe("How long to wait for a reply in seconds (default 5 min)"),
+    },
+    async ({ question, timeout_seconds = 300 }: { question: string; timeout_seconds?: number }) => {
+      const token = randomUUID();
+      const ip = getLocalIp();
+      const replyUrl = `http://${ip}:${PORT}/reply/${token}`;
+      const cfg = loadConfig();
+
+      // Send via Telegram
+      if (cfg.telegram?.enabled && cfg.telegram.token && cfg.telegram.chatId) {
+        await fetch(`https://api.telegram.org/bot${cfg.telegram.token}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: cfg.telegram.chatId,
+            text: `❓ ${question}\n\nReply to this message with your answer.`,
+          }),
+        }).catch(() => {});
+      }
+
+      // Send via email with reply link
+      const email = cfg.email ?? {};
+      if (email.enabled && email.to) {
+        try {
+          let transport;
+          if (email.refreshToken && email.clientId && email.clientSecret) {
+            transport = nodemailer.createTransport({
+              service: "gmail", auth: { type: "OAuth2", user: email.connectedEmail ?? email.to,
+                clientId: email.clientId, clientSecret: email.clientSecret,
+                refreshToken: email.refreshToken, accessToken: email.accessToken },
+            });
+          } else if (email.host && email.user && email.pass) {
+            transport = nodemailer.createTransport({
+              host: email.host, port: email.port ?? 587, secure: email.secure ?? false,
+              auth: { user: email.user, pass: email.pass },
+            });
+          }
+          if (transport) {
+            await transport.sendMail({
+              from: email.connectedEmail ?? email.user ?? email.to,
+              to: email.to,
+              subject: `Claude asks: ${question.slice(0, 60)}`,
+              html: `<p style="font-size:16px">${question}</p>
+                     <p><a href="${replyUrl}" style="background:#7c6dfa;color:white;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;margin-top:8px">Reply to Claude</a></p>`,
+            });
+          }
+        } catch { /* best effort */ }
+      }
+
+      // Wait for reply
+      const reply = await new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          pendingAsks.delete(token);
+          reject(new Error(`No reply received within ${timeout_seconds}s`));
+        }, timeout_seconds * 1000);
+        pendingAsks.set(token, { resolve, timer });
+        pollTelegram();
+      });
+
+      return { content: [{ type: "text" as const, text: reply }] };
+    }
+  );
+
   return server;
 }
 
@@ -526,15 +672,6 @@ app.post("/mcp/message", async (req, res) => {
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
-
-function getLocalIp() {
-  for (const nets of Object.values(networkInterfaces())) {
-    for (const net of nets ?? []) {
-      if (net.family === "IPv4" && !net.internal) return net.address;
-    }
-  }
-  return "localhost";
-}
 
 app.listen(PORT, "0.0.0.0", () => {
   const ip = getLocalIp();

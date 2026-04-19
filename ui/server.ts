@@ -97,8 +97,9 @@ app.post("/api/config", (req, res) => {
 // ── Test routes ───────────────────────────────────────────────────────────────
 
 app.post("/api/test/desktop", (_req, res) => {
+  const time = new Date().toLocaleTimeString();
   notifier.notify(
-    { title: "Claude Notify", message: "Desktop notifications are working!", sound: true },
+    { title: "Claude Notify", message: `Desktop is working! (${time})`, sound: true },
     (err) => {
       if (err) res.status(500).json({ error: String(err) });
       else res.json({ ok: true, message: "Desktop notification sent!" });

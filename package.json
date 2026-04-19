@@ -1,15 +1,45 @@
 {
-  "name": "notify-mcp",
+  "name": "omni-notify-mcp",
   "version": "1.0.0",
-  "description": "Multi-channel notification MCP server: desktop, WhatsApp, SMS, email",
+  "description": "Multi-channel notification MCP server: desktop, Telegram, WhatsApp, SMS, and email — configurable via a web UI",
   "main": "dist/index.js",
   "type": "module",
+  "bin": {
+    "omni-notify-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist/",
+    "ui/public/",
+    "config.example.json",
+    "README.md"
+  ],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "notifications",
+    "telegram",
+    "whatsapp",
+    "sms",
+    "email",
+    "desktop",
+    "claude",
+    "ai-tools"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/menih/omni-notify-mcp"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsc && tsc -p ui/tsconfig.json",
     "build:mcp": "tsc",
     "build:ui": "tsc -p ui/tsconfig.json",
     "start": "node dist/index.js",
-    "ui": "npm run build:ui && node dist/ui/server.js"
+    "ui": "npm run build:ui && node dist/ui/server.js",
+    "prepublishOnly": "npm run build:mcp"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

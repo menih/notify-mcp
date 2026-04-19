@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(vsce *)",
+      "Bash(claude mcp *)",
+      "Bash(chmod *)",
+      "Bash(mkdir *)",
+      "Bash(node *)",
+      "Bash(python3 *)",
+      "mcp__notify__poll",
+      "mcp__notify__notify",
+      "mcp__notify__ask"
+    ]
+  }
+}

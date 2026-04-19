@@ -1,0 +1,8 @@
+src/
+ui/
+config.json
+notify-ui.sh
+tsconfig.json
+.claude/
+node_modules/
+*.log

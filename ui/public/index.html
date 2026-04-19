@@ -15,6 +15,7 @@
       omni-notify-mcp
     </div>
     <span class="subtitle">Multi-channel notifications for AI agents</span>
+    <a href="/help.html" class="header-link" style="margin-left:auto">Help &amp; setup →</a>
   </header>
 
   <main>
@@ -263,12 +264,20 @@
             <span class="toggle-lbl">Gate non-urgent notifs when user is active</span>
             <button class="btn btn-sm btn-primary" id="save-idle-btn" onclick="saveIdle()">Save</button>
           </div>
-          <p class="hint">Clients call <code>get_idle_config</code> + <code>get_idle_seconds</code> and skip the notif if idle is below the threshold. <code>priority='high'</code> always fires.</p>
+          <p class="hint">When you're at the keyboard, the server suppresses remote channels (Telegram/SMS/email) for non-urgent notifs. <code>priority='high'</code> always fires.</p>
           <div class="fg">
             <label>Threshold (seconds)</label>
             <input type="number" id="idle-threshold" min="10" max="3600" value="120" oninput="markDirty('idle')">
-            <p class="hint">Default 120s (2 min). Under this, user is considered active → skip.</p>
+            <p class="hint">Default 120s (2 min). Under this, you're considered active.</p>
           </div>
+          <div class="actions" style="margin-top:8px">
+            <label class="toggle-wrap">
+              <input type="checkbox" id="idle-always-desktop" oninput="markDirty('idle')">
+              <span class="toggle"></span>
+            </label>
+            <span class="toggle-lbl">Always play desktop sound when active</span>
+          </div>
+          <p class="hint">Recommended ON. Lets you know <em>something</em> happened without blasting your phone — handy when running multiple agents.</p>
         </div>
       </div>
 

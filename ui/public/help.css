@@ -1,0 +1,189 @@
+.help-main {
+  flex: 1;
+  padding: 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 920px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* .header-link styles live in style.css so the link works on the main page too */
+
+.help-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 18px 22px;
+}
+.help-section h2 {
+  font-size: 16px;
+  margin: 0 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.help-section p {
+  color: var(--text);
+  margin: 6px 0 10px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.help-section .hint {
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.help-section code {
+  background: #1a1f28;
+  border: 1px solid #2c3340;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: #7bb8ff;
+}
+
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ── Tabs ────────────────────────────────────────────────────────────────── */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 14px;
+}
+.tab {
+  background: transparent;
+  border: none;
+  color: var(--text-3);
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color .15s, border-color .15s;
+}
+.tab:hover { color: var(--text); }
+.tab-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab-panel { display: none; }
+.tab-panel-active { display: block; }
+
+/* ── Snippet (code + copy button) ────────────────────────────────────────── */
+.snippet {
+  position: relative;
+  background: #0a0a14;
+  border: 1px solid #1d1d2e;
+  border-radius: 7px;
+  margin: 8px 0 12px;
+  overflow: hidden;
+}
+.snippet pre {
+  margin: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+}
+.snippet code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: #d4d4dc;
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre;
+}
+.copy-btn {
+  position: absolute;
+  top: 8px; right: 8px;
+  background: #1c1c2a;
+  border: 1px solid #2e2e44;
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.copy-btn:hover { background: var(--accent); color: white; border-color: var(--accent); }
+.copy-btn.copied { background: var(--success); color: white; border-color: var(--success); }
+
+/* ── Misc ────────────────────────────────────────────────────────────────── */
+.paths {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 12px;
+}
+.paths li {
+  font-size: 12px;
+  color: var(--text);
+  padding: 3px 0;
+}
+
+.cta {
+  display: inline-block;
+  background: var(--accent);
+  color: white;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 8px 18px;
+  border-radius: 7px;
+  text-decoration: none;
+  transition: background .15s;
+}
+.cta:hover { background: var(--accent-h); }
+
+.tools-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 12.5px;
+}
+.tools-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+.tools-table td:first-child {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.trouble {
+  background: #0d0d18;
+  border: 1px solid #1d1d2e;
+  border-radius: 6px;
+  margin: 6px 0;
+}
+.trouble summary {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--text);
+}
+.trouble[open] summary { border-bottom: 1px solid #1d1d2e; }
+.trouble p {
+  padding: 8px 14px;
+  margin: 0;
+  color: var(--text);
+  font-size: 12.5px;
+}
+.trouble a { color: var(--accent); }

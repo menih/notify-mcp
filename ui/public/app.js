@@ -84,6 +84,7 @@ function populateForm() {
   const idle = config.idle ?? {};
   $("idle-enabled").checked = idle.enabled !== false; // default on
   $("idle-threshold").value = idle.thresholdSeconds ?? 120;
+  $("idle-always-desktop").checked = idle.alwaysDesktopWhenActive !== false; // default on
 }
 
 function showGmailConnected(email, to) {
@@ -215,6 +216,7 @@ async function saveIdle() {
     idle: {
       enabled: $("idle-enabled").checked,
       thresholdSeconds: Number.isFinite(thresh) && thresh > 0 ? thresh : 120,
+      alwaysDesktopWhenActive: $("idle-always-desktop").checked,
     },
   });
   clearDirty("idle");

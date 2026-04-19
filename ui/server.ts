@@ -40,8 +40,9 @@ function defaultConfig() {
       },
     },
     idle: {
-      enabled: true,         // when true, clients are instructed to idle-gate non-urgent notifs
-      thresholdSeconds: 120, // <= this → user considered "active" → client should skip notif
+      enabled: true,         // when true, the server gates non-urgent notifs based on user activity
+      thresholdSeconds: 120, // <= this → user considered "active" → suppress remote channels
+      alwaysDesktopWhenActive: true, // when active+gated, still play desktop sound+banner so the user knows *something* happened (cheap local signal, doesn't blast the phone)
     },
   };
 }
@@ -149,15 +150,29 @@ app.post("/api/config", (req, res) => {
 
 // ── Test routes ───────────────────────────────────────────────────────────────
 
-// Sound-only test — fires the system sound regardless of the saved 'sound'
-// toggle, so the user can preview the chime before deciding whether to enable
-// it. node-notifier has no sound-only API, so we send a minimal notification.
+// Sound-only test — fires a system sound regardless of the saved 'sound'
+// toggle, so the user can preview the chime. On Windows, SnoreToast's
+// notification-sound is often muted per-app by Windows, so we ALSO trigger
+// a PowerShell console beep as a guaranteed-audible fallback. On mac/Linux
+// node-notifier's `sound: true` works reliably, no fallback needed.
 app.post("/api/test/sound", (_req, res) => {
+  if (process.platform === "win32") {
+    // Direct PowerShell beep — bypasses the notification subsystem entirely.
+    // Plays an 800Hz tone for 200ms through the system speakers. Cannot be
+    // muted by per-app notification settings.
+    spawn("powershell", [
+      "-NoProfile",
+      "-Command",
+      "[console]::beep(880,180); Start-Sleep -Milliseconds 60; [console]::beep(660,180)",
+    ], { windowsHide: true, stdio: "ignore" });
+    res.json({ ok: true, message: "Beep sent (Windows console.beep)" });
+    return;
+  }
   notifier.notify(
-    { title: "🔔", message: "(sound test)", sound: true, timeout: 1 },
+    { title: "Claude Notify", message: "Sound test", sound: true, wait: false },
     (err) => {
       if (err) res.status(500).json({ error: String(err) });
-      else res.json({ ok: true, message: "System sound played" });
+      else res.json({ ok: true, message: "System sound triggered" });
     }
   );
 });
@@ -165,11 +180,18 @@ app.post("/api/test/sound", (_req, res) => {
 app.post("/api/test/desktop", (_req, res) => {
   const time = new Date().toLocaleTimeString();
   const cfg = loadConfig();
+  const wantSound = cfg.desktop?.sound !== false;
+  if (wantSound && process.platform === "win32") {
+    spawn("powershell", [
+      "-NoProfile", "-Command",
+      "[console]::beep(880,180); Start-Sleep -Milliseconds 60; [console]::beep(660,180)",
+    ], { windowsHide: true, stdio: "ignore" });
+  }
   notifier.notify(
     {
       title: "Claude Notify",
       message: `Desktop is working! (${time})`,
-      sound: cfg.desktop?.sound !== false,
+      sound: wantSound && process.platform !== "win32",
     },
     (err) => {
       if (err) res.status(500).json({ error: String(err) });
@@ -530,6 +552,28 @@ async function sendNotification(message: string, priority: "low" | "normal" | "h
     return "DND active — notif suppressed (priority=high would still send)";
   }
 
+  // Idle gating — when the user is actively at the keyboard, suppress *remote*
+  // channels (Telegram/SMS/email) for non-high priority. By default we still
+  // play the desktop sound+banner so the user knows *something* happened —
+  // they may have multiple agents running and this is a cheap local signal
+  // that doesn't blast their phone. Disable via idle.alwaysDesktopWhenActive=false.
+  // priority=high always bypasses idle entirely.
+  let desktopOnlyMode = false;
+  if (priority !== "high" && cfg.idle?.enabled !== false) {
+    const idleSecs = getOsIdleSeconds();
+    const threshold = cfg.idle?.thresholdSeconds ?? 120;
+    const userIsActive = idleSecs >= 0 && idleSecs < threshold;
+    if (userIsActive) {
+      if (cfg.idle?.alwaysDesktopWhenActive !== false && cfg.desktop?.enabled) {
+        desktopOnlyMode = true;
+        log("·", "idle", `user active (${idleSecs}s < ${threshold}s) — desktop-only`, client);
+      } else {
+        log("·", "idle", `user active (${idleSecs}s < ${threshold}s) — suppressed`, client);
+        return "Idle gated — user is active, notif suppressed (priority=high would still send)";
+      }
+    }
+  }
+
   const send = async (name: string, fn: () => Promise<void>) => {
     try {
       await fn();
@@ -544,11 +588,22 @@ async function sendNotification(message: string, priority: "low" | "normal" | "h
 
   if (priority !== "low") {
     if (cfg.desktop?.enabled) {
+      const wantSound = cfg.desktop?.sound !== false;
+      // On Windows, SnoreToast's per-app sound is often muted by the user's
+      // Windows notification settings — fire a PowerShell beep alongside the
+      // toast so the audible cue is reliable. macOS/Linux: trust the OS.
+      if (wantSound && process.platform === "win32") {
+        spawn("powershell", [
+          "-NoProfile", "-Command",
+          "[console]::beep(880,180); Start-Sleep -Milliseconds 60; [console]::beep(660,180)",
+        ], { windowsHide: true, stdio: "ignore" });
+      }
+      const soundOpt = wantSound && process.platform !== "win32";
       await send("desktop", () => new Promise<void>((res, rej) =>
-        notifier.notify({ title: "Claude Notify", message, sound: cfg.desktop?.sound !== false },
+        notifier.notify({ title: "Claude Notify", message, sound: soundOpt },
           (err) => err ? rej(err) : res())));
     }
-    if (cfg.telegram?.enabled && cfg.telegram.token && cfg.telegram.chatId) {
+    if (!desktopOnlyMode && cfg.telegram?.enabled && cfg.telegram.token && cfg.telegram.chatId) {
       await send("telegram", async () => {
         const body: Record<string, any> = { chat_id: cfg.telegram.chatId, text: message };
         if (lastUserMessageId) body.reply_to_message_id = lastUserMessageId;
@@ -572,7 +627,7 @@ async function sendNotification(message: string, priority: "low" | "normal" | "h
   }
 
   const email = cfg.email ?? {};
-  if (email.enabled && email.to) {
+  if (!desktopOnlyMode && email.enabled && email.to) {
     await send("email", async () => {
       let transport;
       if (email.refreshToken && email.clientId && email.clientSecret) {
@@ -877,14 +932,19 @@ channels are in use — just call 'notify' or 'ask' with a generic message.
 
 BEHAVIORAL RULES for every client that connects:
 
-1. Before calling 'notify' or 'ask', call 'get_idle_seconds' first. If the
-   returned value is less than the server-configured threshold (see
-   'get_idle_config'), the user is actively at the keyboard — SKIP the notif
-   call entirely. They can already see what you'd send. Only pay the
-   notification cost when they have stepped away.
+1. Always call 'notify' for milestones, decisions, completions. The SERVER
+   handles all gating (DND, idle, channel routing). You do not need to
+   pre-flight with 'get_idle_seconds' — the server checks it itself and
+   downgrades the delivery automatically. When the user is active, the server
+   will play a local desktop sound+banner so they know something happened
+   (without blasting their phone). Just call 'notify'.
 
-2. Exception: priority='high' always fires regardless of idle state. Use
-   'high' for catastrophic findings or decisions that block progress.
+2. Use priority correctly:
+   - 'low'    = email only — for low-stakes status (background completion).
+   - 'normal' = desktop + Telegram + email — the default.
+   - 'high'   = all channels including SMS — bypasses DND AND idle gating.
+                Use ONLY for catastrophic findings or decisions that block
+                progress. Misuse will train the user to ignore your notifs.
 
 3. Echo the full message body in your own chat / conversation output as well
    as sending it through 'notify'. The user may be reading the terminal
@@ -899,9 +959,9 @@ BEHAVIORAL RULES for every client that connects:
    to them THROUGH 'notify' so the reply actually reaches them — not just in
    your chat output.
 
-6. Check 'get_dnd_status' if you want to know whether the server will actually
-   deliver. If DND is active and priority < high, the server will suppress
-   delivery anyway.
+6. The 'get_idle_*' and 'get_dnd_status' tools are informational. You can
+   inspect them if you want to explain a delivery decision, but they are NOT
+   required pre-flights — the server gates server-side.
 `.trim();
 
 function createMcpServer(clientId: string, sessionTag?: string) {
@@ -1046,14 +1106,13 @@ function createMcpServer(clientId: string, sessionTag?: string) {
 
   server.tool(
     "get_idle_config",
-    "Returns the server-configured idle gating policy: " +
-      "{ enabled: boolean, thresholdSeconds: number }. " +
-      "Clients should skip non-urgent notifs when idle_seconds < thresholdSeconds. " +
-      "priority='high' always bypasses.",
+    "Returns the server's idle gating policy: { enabled, thresholdSeconds, alwaysDesktopWhenActive }. " +
+      "Informational only — the server gates internally on every notify call. " +
+      "You don't need to pre-flight idle checks; just call 'notify'.",
     {},
     async () => {
       const cfg = loadConfig();
-      const idle = cfg.idle ?? { enabled: true, thresholdSeconds: 120 };
+      const idle = cfg.idle ?? { enabled: true, thresholdSeconds: 120, alwaysDesktopWhenActive: true };
       return { content: [{ type: "text" as const, text: JSON.stringify(idle) }] };
     }
   );

@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>omni-notify-mcp · Setup help</title>
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <div id="toast" class="toast hidden"></div>
+
+  <header>
+    <a href="/" class="logo" style="text-decoration:none">
+      <img src="assets/logo.svg" width="22" height="22" alt="">
+      omni-notify-mcp
+    </a>
+    <span class="subtitle">Setup help — copy &amp; paste</span>
+    <a href="/" class="header-link" style="margin-left:auto">← Back to settings</a>
+  </header>
+
+  <main class="help-main">
+
+    <section class="help-section">
+      <h2><span class="step-num">1</span> Install — already done if you can read this</h2>
+      <p>If you opened this page, the server is already running on
+        <code>http://localhost:3737</code>. To start it again later:</p>
+      <div class="snippet">
+        <button class="copy-btn" data-copy="npx omni-notify-mcp">Copy</button>
+        <pre><code>npx omni-notify-mcp</code></pre>
+      </div>
+      <p class="hint">No install needed — <code>npx</code> fetches and runs it on demand. To pin a version: <code>npx omni-notify-mcp@latest</code>.</p>
+    </section>
+
+    <section class="help-section">
+      <h2><span class="step-num">2</span> Register with your AI client</h2>
+      <p>Pick your tool. The config is the same shape everywhere — only the file path changes.</p>
+
+      <div class="tabs">
+        <button class="tab tab-active" data-tab="claude-code">Claude Code (CLI)</button>
+        <button class="tab" data-tab="cursor">Cursor</button>
+        <button class="tab" data-tab="vscode">VS Code</button>
+        <button class="tab" data-tab="claude-desktop">Claude Desktop</button>
+        <button class="tab" data-tab="windsurf">Windsurf</button>
+        <button class="tab" data-tab="zed">Zed</button>
+        <button class="tab" data-tab="generic">Any other MCP client</button>
+      </div>
+
+      <!-- Claude Code -->
+      <div class="tab-panel tab-panel-active" data-panel="claude-code">
+        <p><strong>Easiest:</strong> one CLI command, no file editing needed.</p>
+        <div class="snippet">
+          <button class="copy-btn" data-copy="claude mcp add notify -- npx -y omni-notify-mcp">Copy</button>
+          <pre><code>claude mcp add notify -- npx -y omni-notify-mcp</code></pre>
+        </div>
+        <p class="hint">Or edit <code>~/.claude.json</code> directly:</p>
+        <div class="snippet">
+          <button class="copy-btn" data-copy='{
+  "mcpServers": {
+    "notify": {
+      "command": "npx",
+      "args": ["-y", "omni-notify-mcp"]
+    }
+  }
+}'>Copy</button>
+          <pre><code>{
+  "mcpServers": {
+    "notify": {
+      "command": "npx",
+      "args": ["-y", "omni-notify-mcp"]
+    }
+  }
+}</code></pre>
+        </div>
+        <p class="hint">Restart Claude Code. Verify with <code>/mcp</code> — you should see the <code>notify</code> server listed.</p>
+      </div>
+
+      <!-- Cursor -->
+      <div class="tab-panel" data-panel="cursor">
+        <p>Edit <code>~/.cursor/mcp.json</code> (global) or <code>.cursor/mcp.json</code> in your project (workspace-scoped):</p>
+        <div class="snippet">
+          <button class="copy-btn" data-copy='{
+  "mcpServers": {
+    "notify": {
+      "command": "npx",
+      "args": ["-y", "omni-notify-mcp"]
+    }
+  }
+}'>Copy</button>
+          <pre><code>{
+  "mcpServers": {
+    "notify": {
+      "command": "npx",
+      "args": ["-y", "omni-notify-mcp"]
+    }
+  }
+}</code></pre>
+        </div>
+        <p class="hint">Open Cursor Settings → MCP to verify the server shows up green.</p>
+      </div>
+
+      <!-- VS Code -->
+      <div class="tab-panel" data-panel="vscode">
+        <p>VS Code 1.86+ has native MCP support — no extension needed.
+          Create <code>.vscode/mcp.json</code> in your workspace:</p>
+        <div class="snippet">
+          <button class="copy-btn" data-copy='{
+  "servers": {
+    "notify": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "omni-notify-mcp"]
+    }
+  }
+}'>Copy</button>
+          <pre><code>{
+  "servers": {
+    "notify": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "omni-notify-mcp"]
+    }
+  }
+}</code></pre>
+        </div>
+        <p class="hint">Or via Command Palette → <em>MCP: Add Server</em> → npm package → <code>omni-notify-mcp</code>.</p>
+      </div>
+
+      <!-- Claude Desktop -->
+      <div class="tab-panel" data-panel="claude-desktop">
+        <p>Edit <code>claude_desktop_config.json</code>:</p>
+        <ul class="paths">
+          <li><strong>macOS:</strong> <code>~/Library/Application Support/Claude/claude_desktop_config.json</code></li>
+          <li><strong>Windows:</strong> <code>%APPDATA%\Claude\claude_desktop_config.json</code></li>
+          <li><strong>Linux:</strong> <code>~/.config/Claude/claude_desktop_config.json</code></li>
+        </ul>
+        <div class="snippet">
+          <button class="copy-btn" data-copy='{
+  "mcpServers": {
+    "notify": {
+      "command": "npx",
+      "args": ["-y", "omni-notify-mcp"]
+    }
+  }
+}'>Copy</button>
+          <pre><code>{
+  "mcpServers": {
+    "notify": {
+      "command": "npx",
+      "args": ["-y", "omni-notify-mcp"]
+    }
+  }
+}</code></pre>
+        </div>
+        <p class="hint">Fully quit Claude Desktop and reopen. The 🔌 icon should show <code>notify</code> connected.</p>
+      </div>
+
+      <!-- Windsurf -->
+      <div class="tab-panel" data-panel="windsurf">
+        <p>Edit <code>~/.codeium/windsurf/mcp_config.json</code>:</p>
+        <div class="snippet">
+          <button class="copy-btn" data-copy='{
+  "mcpServers": {
+    "notify": {
+      "command": "npx",
+      "args": ["-y", "omni-notify-mcp"]
+    }
+  }
+}'>Copy</button>
+          <pre><code>{
+  "mcpServers": {
+    "notify": {
+      "command": "npx",
+      "args": ["-y", "omni-notify-mcp"]
+    }
+  }
+}</code></pre>
+        </div>
+      </div>
+
+      <!-- Zed -->
+      <div class="tab-panel" data-panel="zed">
+        <p>Edit <code>~/.config/zed/settings.json</code> — add under <code>context_servers</code>:</p>
+        <div class="snippet">
+          <button class="copy-btn" data-copy='{
+  "context_servers": {
+    "notify": {
+      "command": {
+        "path": "npx",
+        "args": ["-y", "omni-notify-mcp"]
+      }
+    }
+  }
+}'>Copy</button>
+          <pre><code>{
+  "context_servers": {
+    "notify": {
+      "command": {
+        "path": "npx",
+        "args": ["-y", "omni-notify-mcp"]
+      }
+    }
+  }
+}</code></pre>
+        </div>
+      </div>
+
+      <!-- Generic -->
+      <div class="tab-panel" data-panel="generic">
+        <p>Any MCP-compatible client just needs to spawn <code>omni-notify-mcp</code> over <strong>stdio</strong>:</p>
+        <div class="snippet">
+          <button class="copy-btn" data-copy="npx -y omni-notify-mcp">Copy</button>
+          <pre><code>npx -y omni-notify-mcp</code></pre>
+        </div>
+        <p class="hint">Or for HTTP/SSE-based clients, point them at the running UI server's MCP endpoint:</p>
+        <div class="snippet">
+          <button class="copy-btn" data-copy="http://localhost:3737/mcp">Copy</button>
+          <pre><code>http://localhost:3737/mcp</code></pre>
+        </div>
+        <p class="hint">Add <code>?tag=&lt;name&gt;</code> to the URL to give the session a routing tag (e.g. <code>?tag=alphawave</code> — see multi-session docs).</p>
+      </div>
+    </section>
+
+    <section class="help-section">
+      <h2><span class="step-num">3</span> Configure your channels</h2>
+      <p>Decide where notifications should land — desktop, Telegram, SMS, email — and tune Do Not Disturb / idle gating.</p>
+      <p><a class="cta" href="/">→ Open settings</a></p>
+    </section>
+
+    <section class="help-section">
+      <h2>What the AI gets</h2>
+      <p>Six tools, all server-configured. The agent never names a channel — it just calls <code>notify</code>/<code>ask</code> and your settings decide where it goes:</p>
+      <table class="tools-table">
+        <tr><td><code>notify</code></td><td>Send a message. <code>priority=low|normal|high</code> controls fan-out and bypasses DND when high.</td></tr>
+        <tr><td><code>ask</code></td><td>Send a question and <strong>wait for your reply</strong> (Telegram or email link).</td></tr>
+        <tr><td><code>poll</code></td><td>Drain unsolicited messages you sent the agent.</td></tr>
+        <tr><td><code>get_idle_seconds</code></td><td>Seconds since your last keyboard/mouse input.</td></tr>
+        <tr><td><code>get_idle_config</code></td><td>The server's idle-gating policy.</td></tr>
+        <tr><td><code>get_dnd_status</code></td><td>Whether Do Not Disturb is currently suppressing.</td></tr>
+      </table>
+      <p class="hint">Well-behaved agents pre-flight with <code>get_idle_seconds</code> and skip the notif entirely if you're at the keyboard. The MCP <code>instructions</code> field tells every connecting client this — no per-prompt prodding required.</p>
+    </section>
+
+    <section class="help-section">
+      <h2>Troubleshooting</h2>
+      <details class="trouble">
+        <summary>Agent says "tool not found" for <code>notify</code></summary>
+        <p>Restart your AI client after editing the config file. Most clients only read MCP config at startup.</p>
+      </details>
+      <details class="trouble">
+        <summary>Notification didn't arrive</summary>
+        <p>Check the activity log on the <a href="/">main page</a> — it shows every send attempt and any error. Common causes: channel disabled, Do Not Disturb active, or idle-gating skipped because you were typing.</p>
+      </details>
+      <details class="trouble">
+        <summary>Telegram bot isn't replying</summary>
+        <p>Make sure you've messaged your bot at least once (so it has a chat ID). Click <strong>Detect</strong> on the Telegram card to auto-fill it.</p>
+      </details>
+      <details class="trouble">
+        <summary>Where's my config stored?</summary>
+        <p><code>~/.notify-mcp/config.json</code>. Secrets are masked when read back via the API but stored plain on disk — same as <code>~/.claude.json</code>.</p>
+      </details>
+    </section>
+
+  </main>
+
+  <script src="help.js"></script>
+</body>
+</html>

@@ -1,18 +1,19 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg:      #0a0a0b;
-  --surface: #111113;
-  --border:  #222226;
-  --text:    #f0f0f0;
-  --text-2:  #a0a0b0;
-  --text-3:  #555565;
-  --accent:  #7c6dfa;
-  --accent-h:#9080ff;
-  --success: #10b981;
-  --danger:  #ef4444;
-  --warn:    #f59e0b;
-  --r:       9px;
+  --bg:      #0d0f12;
+  --surface: #14171c;
+  --border:  #242832;
+  --text:    #e6e8ec;
+  --text-2:  #9aa3b2;
+  --text-3:  #5a6478;
+  --accent:  #4ea3ff;     /* bright blue — readable, distinctly "interactive" */
+  --accent-h:#6fb6ff;
+  --accent-d:#1a3a5c;     /* dark variant for backgrounds */
+  --success: #4ade80;
+  --danger:  #f87171;
+  --warn:    #d4a857;     /* muted amber, was glaring orange */
+  --r:       8px;
 }
 
 html, body { height: 100%; }
@@ -54,6 +55,23 @@ header {
   color: var(--text-3);
   font-size: 12px;
   white-space: nowrap;
+}
+
+.header-link {
+  color: var(--accent);
+  background: var(--accent-d);
+  border: 1px solid var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  padding: 5px 12px;
+  border-radius: 6px;
+  transition: background .15s, color .15s;
+  white-space: nowrap;
+}
+.header-link:hover {
+  background: var(--accent);
+  color: white;
 }
 
 .os-tag {
@@ -126,10 +144,10 @@ main {
   border-left: 1px solid var(--border);
 }
 
-/* Subtle accent strip at the top of each subsection so the role is obvious
-   without re-introducing two heavy framed boxes. */
-.section-channels { box-shadow: inset 0 3px 0 0 #7c6dfa; }
-.section-policies { box-shadow: inset 0 3px 0 0 #f59e0b; }
+/* Subtle accent strip at the top of each subsection — color carries the
+   role, so the title text stays bright/legible (don't tint text). */
+.section-channels { box-shadow: inset 0 3px 0 0 #4ea3ff; }   /* bright blue */
+.section-policies { box-shadow: inset 0 3px 0 0 #d4a857; }   /* muted amber */
 
 .section-hd {
   display: flex;
@@ -141,17 +159,15 @@ main {
 
 .section-hd-title {
   font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.10em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text);
 }
-.section-channels .section-hd-title { color: #b3a8ff; }
-.section-policies .section-hd-title { color: #f5b463; }
 
 .section-hd-sub {
   font-size: 11px;
-  color: var(--text-3);
+  color: var(--text-2);
   margin-left: auto;
 }
 
@@ -530,7 +546,7 @@ p.hint code {
 
 .log-entry { display: flex; gap: 8px; align-items: baseline; }
 .log-ts    { color: var(--text-3); white-space: nowrap; flex-shrink: 0; }
-.log-client { color: #7c6dfa; font-weight: 700; white-space: nowrap; flex-shrink: 0; }
+.log-client { color: var(--accent); font-weight: 700; white-space: nowrap; flex-shrink: 0; }
 .log-dir-out  { color: #38bdf8; flex-shrink: 0; }
 .log-dir-in   { color: #4ade80; flex-shrink: 0; }
 .log-dir-info { color: var(--text-3); flex-shrink: 0; }

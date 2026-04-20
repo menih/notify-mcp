@@ -4,4 +4,5 @@ config.json
 # Secrets — never commit
 .secrets
 .notify-mcp-secrets
+tokens.txt
 *.vsix

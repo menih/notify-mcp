@@ -87,7 +87,7 @@
           <div id="gmail-connected-state" class="hidden">
             <div class="actions">
               <label class="toggle-wrap">
-                <input type="checkbox" id="email-enabled" oninput="markDirty('email')">
+                <input type="checkbox" id="email-enabled" onchange="toggleEmailEnabled()">
                 <span class="toggle"></span>
               </label>
               <span class="toggle-lbl">Enable</span>
@@ -134,7 +134,7 @@
         <div class="card-body">
           <div class="actions">
             <label class="toggle-wrap">
-              <input type="checkbox" id="telegram-enabled" oninput="markDirty('telegram')">
+              <input type="checkbox" id="telegram-enabled" onchange="toggleTelegramEnabled()">
               <span class="toggle"></span>
             </label>
             <span class="toggle-lbl">Enable</span>
@@ -175,7 +175,7 @@
         <div class="card-body">
           <div class="actions">
             <label class="toggle-wrap">
-              <input type="checkbox" id="sms-enabled" oninput="markDirty('sms')">
+              <input type="checkbox" id="sms-enabled" onchange="toggleSmsEnabled()">
               <span class="toggle"></span>
             </label>
             <span class="toggle-lbl">Enable</span>
@@ -303,6 +303,9 @@
           <span class="dot dot-ok" id="log-dot" style="display:inline-block"></span>
           Activity Log
         </span>
+        <div class="session-pills" id="session-pills">
+          <button class="pill pill-active" data-client="" onclick="selectLogFilter('')">All</button>
+        </div>
         <button class="btn btn-sm btn-ghost" onclick="clearLog()">Clear</button>
       </div>
       <div class="log-panel" id="log-panel"></div>

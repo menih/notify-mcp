@@ -206,6 +206,20 @@ async function saveEmail() {
   clearDirty("email");
 }
 
+// Standalone enable-toggle handlers: persist immediately without requiring a
+// Save-button click. Credentials still need the explicit Save flow, but the
+// on/off switch auto-persists so users aren't left wondering why their
+// toggle "snapped back" after a reload.
+async function toggleTelegramEnabled() {
+  await patch({ telegram: { enabled: $("telegram-enabled").checked } });
+}
+async function toggleEmailEnabled() {
+  await patch({ email: { enabled: $("email-enabled").checked } });
+}
+async function toggleSmsEnabled() {
+  await patch({ sms: { enabled: $("sms-enabled").checked } });
+}
+
 async function saveTelegram() {
   await patch({
     telegram: {
@@ -552,11 +566,28 @@ function parseLogEntry(raw) {
   return { ts: m[1], client: m[2] || null, dir: m[3], channel: m[4], msg: m[5] };
 }
 
+let logFilterClient = "";
+
+function selectLogFilter(clientId) {
+  logFilterClient = clientId;
+  document.querySelectorAll("#session-pills .pill").forEach(p => {
+    p.classList.toggle("pill-active", (p.dataset.client || "") === clientId);
+  });
+  // Re-apply hidden class to all entries based on the new filter.
+  document.querySelectorAll("#log-panel .log-entry").forEach(el => {
+    const c = el.dataset.client || "";
+    el.style.display = (!clientId || c === clientId || (!c && clientId === "")) ? "" : "none";
+  });
+  const panel = $("log-panel");
+  panel.scrollTop = panel.scrollHeight;
+}
+
 function renderLogEntry(raw) {
   const panel = $("log-panel");
   const p = parseLogEntry(raw);
   const el = document.createElement("div");
   el.className = "log-entry";
+  el.dataset.client = (p && p.client) ? p.client : "";
 
   if (p) {
     const ts = new Date(p.ts).toLocaleTimeString([], { hour12: false });
@@ -574,10 +605,55 @@ function renderLogEntry(raw) {
     el.innerHTML = `<span class="log-msg">${raw.replace(/</g,"&lt;")}</span>`;
   }
 
+  if (logFilterClient && el.dataset.client !== logFilterClient) {
+    el.style.display = "none";
+  }
   const atBottom = panel.scrollHeight - panel.scrollTop <= panel.clientHeight + 20;
   panel.appendChild(el);
   if (atBottom) panel.scrollTop = panel.scrollHeight;
 }
+
+async function refreshSessions() {
+  try {
+    const res = await fetch("/api/sessions");
+    if (!res.ok) return;
+    const { sessions } = await res.json();
+    const bar = $("session-pills");
+    // Build a set of desired pills (keyed by clientId). Keep the "All" pill.
+    const existing = new Map();
+    bar.querySelectorAll(".pill").forEach(p => existing.set(p.dataset.client || "", p));
+    const desired = new Set([""]);
+    for (const s of sessions) desired.add(s.clientId);
+    // Remove pills for disconnected sessions.
+    for (const [id, el] of existing) {
+      if (!desired.has(id)) el.remove();
+    }
+    // Add pills for new sessions.
+    for (const s of sessions) {
+      if (!existing.has(s.clientId)) {
+        const btn = document.createElement("button");
+        btn.className = "pill";
+        btn.dataset.client = s.clientId;
+        btn.textContent = s.tag ? `@${s.tag}` : s.clientId;
+        btn.title = [s.clientName, s.host].filter(Boolean).join(" · ");
+        btn.onclick = () => selectLogFilter(s.clientId);
+        bar.appendChild(btn);
+      }
+    }
+    // If the currently-selected client disconnected, fall back to "All".
+    if (logFilterClient && !desired.has(logFilterClient)) {
+      selectLogFilter("");
+    } else {
+      // Re-sync active state (in case pills were re-added).
+      bar.querySelectorAll(".pill").forEach(p => {
+        p.classList.toggle("pill-active", (p.dataset.client || "") === logFilterClient);
+      });
+    }
+  } catch { /* ignore */ }
+}
+
+setInterval(refreshSessions, 3000);
+refreshSessions();
 
 function clearLog() {
   $("log-panel").innerHTML = "";

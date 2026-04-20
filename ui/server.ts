@@ -582,6 +582,18 @@ function log(direction: "→" | "←" | "·", channel: string, text: string, cli
   }
 }
 
+app.get("/api/sessions", (_req, res) => {
+  const list = listActiveSessions().map(s => ({
+    clientId: s.clientId,
+    tag: s.tag,
+    clientName: s.clientName,
+    clientVersion: s.clientVersion,
+    host: s.host,
+    connectedAt: s.connectedAt,
+  }));
+  res.json({ sessions: list });
+});
+
 app.get("/api/logs", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -613,8 +625,11 @@ async function sendNotification(message: string, priority: "low" | "normal" | "h
   // they may have multiple agents running and this is a cheap local signal
   // that doesn't blast their phone. Disable via idle.alwaysDesktopWhenActive=false.
   // priority=high always bypasses idle entirely.
+  // Conversation bypass: if the user just messaged us from Telegram (within
+  // the TTL), they clearly want a reply over that channel, so skip idle gating.
+  const inTelegramConvo = Date.now() - lastTelegramInboundAt < TELEGRAM_CONVO_TTL_MS;
   let desktopOnlyMode = false;
-  if (priority !== "high" && cfg.idle?.enabled !== false) {
+  if (priority !== "high" && !inTelegramConvo && cfg.idle?.enabled !== false) {
     const idleSecs = getOsIdleSeconds();
     const threshold = cfg.idle?.thresholdSeconds ?? 120;
     const userIsActive = idleSecs >= 0 && idleSecs < threshold;
@@ -627,6 +642,8 @@ async function sendNotification(message: string, priority: "low" | "normal" | "h
         return "Idle gated — user is active, notif suppressed (priority=high would still send)";
       }
     }
+  } else if (priority !== "high" && inTelegramConvo) {
+    log("·", "idle", `bypassed (telegram convo active)`, client);
   }
 
   const send = async (name: string, fn: () => Promise<void>) => {
@@ -776,6 +793,13 @@ const pendingAsks = new Map<string, { resolve: (v: string) => void; timer: NodeJ
 const inboxQueue: InboxEntry[] = [];
 let tgPollOffset = -1;
 let lastUserMessageId: number | undefined;
+// When the user pings us from Telegram, bypass idle-gating on outbound
+// notifs for a while — clearly they want a Telegram reply back, so we
+// shouldn't gate remote channels just because they're at the keyboard
+// typing. TTL is short so normal idle-gating resumes once the conversation
+// goes quiet.
+let lastTelegramInboundAt = 0;
+const TELEGRAM_CONVO_TTL_MS = 5 * 60 * 1000;
 
 // Session tagging: a session may declare a tag (e.g. "alphawave") when it
 // connects to /mcp?tag=alphawave. Telegram messages starting with "@<tag>"
@@ -897,6 +921,7 @@ async function startTelegramListener() {
         if (msg?.chat?.id?.toString() === chatId && msg.text) {
           log("←", "telegram", msg.text);
           lastUserMessageId = msg.message_id;
+          lastTelegramInboundAt = Date.now();
           const { tag, text } = parseTag(msg.text);
           // Match an outstanding ask first. If the message is tagged, only
           // route to a pending ask from that same session — otherwise fall
@@ -917,13 +942,22 @@ async function startTelegramListener() {
             inboxQueue.push(entry);
             broadcastInbox(entry);
             log("·", "inbox", text, tag);
-            // Acknowledge receipt so user knows the message was queued.
-            // Wording is deliberately about *delivery*, not processing: the
-            // agent might be tailing the SSE stream (sees it immediately) or
-            // might only check on its next poll/notify call.
-            const ackText = tag
-              ? `📬 Delivered to @${tag}.`
-              : `📬 Delivered. The agent will process it on its next check-in.`;
+            // Build an ack that names the active sessions the user's message
+            // is being routed to. If the user tagged it and no session with
+            // that tag is connected, tell them plainly so they don't sit
+            // waiting for a reply that can't come.
+            const targets = sessionsMatchingTag(tag);
+            let ackText: string;
+            if (tag && targets.length === 0) {
+              ackText = `📭 No session @${tag} connected. Message queued — next @${tag} to connect will pick it up.`;
+            } else if (targets.length === 0) {
+              ackText = `📭 No agents connected. Message queued — next agent to connect will pick it up.`;
+            } else {
+              const names = targets.map(sessionDisplay).join(", ");
+              ackText = tag
+                ? `📬 Routed to ${names}. Waiting for them to reply.`
+                : `📬 Broadcast to ${targets.length} session(s): ${names}. Each should reply with its identity — respond to the one you want.`;
+            }
             fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
               method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -989,6 +1023,18 @@ function drainInboxFor(tag: string | undefined): InboxEntry[] {
   return taken;
 }
 
+// Appends an inbox block to any tool's text payload when messages are pending
+// for the given session. Lets cheap read tools (get_idle_seconds, get_dnd_status)
+// double as inbox drains, so a busy agent calling them as a keepalive still
+// sees user messages even when it hasn't called notify/poll in a while.
+function appendInbox(baseText: string, sessionTag: string | undefined, clientId: string | undefined): string {
+  const messages = drainInboxFor(sessionTag);
+  if (messages.length === 0) return baseText;
+  log("·", "poll", `${messages.length} message(s) drained via heartbeat`, clientId);
+  const inbox = messages.map(m => `[${m.ts}] ${m.text}`).join("\n");
+  return `${baseText}\n\n⚠️ USER SENT YOU A MESSAGE — STOP AND RESPOND BEFORE CONTINUING:\n${inbox}`;
+}
+
 const MCP_INSTRUCTIONS = `
 This server delivers notifications to the user through whatever channels the
 user has configured on the server side. The client never needs to know which
@@ -1019,13 +1065,40 @@ BEHAVIORAL RULES for every client that connects:
    user has already configured. Say 'notif' or 'notification' instead.
 
 5. When the user sends you an unsolicited message (visible as INBOX items in
-   the 'notify' response, via 'poll', or via the /api/inbox/stream SSE), reply
-   to them THROUGH 'notify' so the reply actually reaches them — not just in
-   your chat output.
+   the 'notify' response, via 'poll', via 'get_idle_seconds' piggy-back, or
+   via the /api/inbox/stream SSE), reply to them THROUGH 'notify' so the reply
+   actually reaches them — not just in your chat output. Multiple agents may
+   be connected simultaneously — the server broadcasts every untagged inbox
+   message to all of them, so the user can see who is listening. Your reply
+   MUST identify which session you are (start with your own tag or client id,
+   e.g. "[@alphawave]" or "[sess-abcd]") and give a brief status so the user
+   can pick whom to respond to. If the user tagged their message (@<tag>),
+   only the session with that tag should reply. If you are untagged and
+   another session with the same project/workdir is already tagged, let the
+   tagged one reply.
 
-6. The 'get_idle_*' and 'get_dnd_status' tools are informational. You can
-   inspect them if you want to explain a delivery decision, but they are NOT
-   required pre-flights — the server gates server-side.
+5a. BUSY-ACK RULE (hard requirement): The moment you notice a user inbox
+    message — whether via notify response, heartbeat piggy-back, or poll —
+    REPLY IMMEDIATELY via 'notify' with a terse status, EVEN IF YOU CAN'T
+    ACT ON THE REQUEST YET. Do not finish the current tool/task first.
+    Drop what you're doing long enough to fire one 'notify' call, THEN
+    resume. Format: "[<your-session-id>] busy on <current-task>; will
+    respond at <milestone>". The user needs to know (a) you heard them,
+    (b) you're not the stuck one, (c) when to expect a real answer. An
+    inbox message that gets a delayed reply is worse than no reply — it
+    wastes the user's time waiting on silence.
+
+6. The 'get_idle_seconds', 'get_idle_config', and 'get_dnd_status' tools are
+   informational reads, but they ALSO drain pending inbox messages. Use them
+   as a cheap heartbeat during long work: call 'get_idle_seconds' EVERY 15-
+   30 SECONDS while a long task runs (loop iteration, backtest, scan, build,
+   etc.). If the user sent you a message while you were busy, it comes back
+   piggy-backed on the response — you don't need to separately call 'poll'.
+   This is a lightweight local read (no network, no DND or channel routing),
+   so the cost is near zero. Without this heartbeat pattern, a busy agent is
+   deaf to the user until its next 'notify' call — which may be minutes or
+   hours away during long work. Treat 'get_idle_seconds' as the "check for
+   user input" primitive, not an idle-gate check.
 
 7. If your tool call fails with "MCP server not connected" / "transport
    closed" / similar — the SERVER IS ALMOST CERTAINLY FINE. Other clients are
@@ -1203,13 +1276,15 @@ function createMcpServer(clientId: string, sessionTag?: string) {
   server.tool(
     "get_idle_seconds",
     "Returns the number of seconds since the user's last keyboard/mouse input. " +
-      "Call this before 'notify' or 'ask' to decide whether to skip (user is active) " +
-      "or fire (user stepped away). Returns -1 if idle detection is unsupported on " +
-      "this platform — in that case, proceed without gating (fail-open).",
+      "Call this periodically during long work as a cheap heartbeat — the server " +
+      "will piggy-back any pending inbox messages in the response, so you stay " +
+      "responsive to the user without having to call poll. Returns -1 if idle " +
+      "detection is unsupported on this platform — in that case, proceed without " +
+      "gating (fail-open).",
     {},
     async () => {
       const secs = getOsIdleSeconds();
-      return { content: [{ type: "text" as const, text: String(secs) }] };
+      return { content: [{ type: "text" as const, text: appendInbox(String(secs), sessionTag, clientId) }] };
     }
   );
 
@@ -1217,12 +1292,12 @@ function createMcpServer(clientId: string, sessionTag?: string) {
     "get_idle_config",
     "Returns the server's idle gating policy: { enabled, thresholdSeconds, alwaysDesktopWhenActive }. " +
       "Informational only — the server gates internally on every notify call. " +
-      "You don't need to pre-flight idle checks; just call 'notify'.",
+      "Also drains pending inbox messages — safe to use as a heartbeat.",
     {},
     async () => {
       const cfg = loadConfig();
       const idle = cfg.idle ?? { enabled: true, thresholdSeconds: 120, alwaysDesktopWhenActive: true };
-      return { content: [{ type: "text" as const, text: JSON.stringify(idle) }] };
+      return { content: [{ type: "text" as const, text: appendInbox(JSON.stringify(idle), sessionTag, clientId) }] };
     }
   );
 
@@ -1231,7 +1306,7 @@ function createMcpServer(clientId: string, sessionTag?: string) {
     "Returns the current DND state: " +
       "{ active: boolean, reason: 'manual' | 'schedule' | 'off' }. " +
       "When active, the server will suppress delivery for priority < high. " +
-      "Clients can use this to short-circuit before calling 'notify'.",
+      "Also drains pending inbox messages — safe to use as a heartbeat.",
     {},
     async () => {
       const cfg = loadConfig();
@@ -1241,7 +1316,7 @@ function createMcpServer(clientId: string, sessionTag?: string) {
         reason = cfg.dnd?.enabled ? "manual" : "schedule";
       }
       return {
-        content: [{ type: "text" as const, text: JSON.stringify({ active, reason }) }],
+        content: [{ type: "text" as const, text: appendInbox(JSON.stringify({ active, reason }), sessionTag, clientId) }],
       };
     }
   );
@@ -1251,25 +1326,111 @@ function createMcpServer(clientId: string, sessionTag?: string) {
 
 const httpTransports: Record<string, StreamableHTTPServerTransport> = {};
 
+interface SessionMeta {
+  clientId: string;      // display name: tag or sess-xxxx
+  tag?: string;          // user-supplied session tag from ?tag=
+  clientName?: string;   // MCP clientInfo.name (e.g. "claude-code")
+  clientVersion?: string;
+  host?: string;         // remote address of the client
+  connectedAt: number;
+  lastSeen: number;      // last time we saw any request from this session
+}
+const sessions: Record<string, SessionMeta> = {};
+
+// Reap sessions that haven't made any request in a while. Keeps the sessions
+// list and pills bar accurate even when clients vanish without closing their
+// transport (VS Code window closed, laptop lid shut, network died). On next
+// reconnect the client gets a 404 and reinitializes cleanly.
+const SESSION_IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
+setInterval(() => {
+  const now = Date.now();
+  for (const [sessionId, meta] of Object.entries(sessions)) {
+    if (now - meta.lastSeen > SESSION_IDLE_TIMEOUT_MS) {
+      log("·", "session", `reaped idle session ${meta.clientId} (last seen ${Math.round((now - meta.lastSeen) / 1000)}s ago)`);
+      try { httpTransports[sessionId]?.close(); } catch { /* ignore */ }
+      delete httpTransports[sessionId];
+      delete sessions[sessionId];
+    }
+  }
+}, 60_000);
+
+function listActiveSessions(): SessionMeta[] {
+  return Object.values(sessions);
+}
+
+function sessionsMatchingTag(tag: string | undefined): SessionMeta[] {
+  if (!tag) return listActiveSessions();
+  return listActiveSessions().filter(s => s.tag === tag);
+}
+
+function sessionDisplay(s: SessionMeta): string {
+  return s.tag ? `@${s.tag}` : s.clientId;
+}
+
 app.all("/mcp", async (req, res) => {
   const existingSessionId = req.headers["mcp-session-id"] as string | undefined;
 
   if (existingSessionId && httpTransports[existingSessionId]) {
     await httpTransports[existingSessionId].handleRequest(req, res, req.body);
+    // Lazy-populate clientInfo after initialize lands on an existing session.
+    const meta = sessions[existingSessionId];
+    if (meta) meta.lastSeen = Date.now();
+    const mcpServer = (httpTransports[existingSessionId] as any).__mcpServer;
+    if (meta && !meta.clientName && mcpServer?.getClientVersion) {
+      try {
+        const info = mcpServer.getClientVersion();
+        if (info) {
+          meta.clientName = info.name;
+          meta.clientVersion = info.version;
+        }
+      } catch { /* ignore */ }
+    }
+    return;
+  }
+
+  // Spec-compliant: if the client presents a session ID we don't know about
+  // (server was restarted, or the transport was closed), return 404 so the
+  // client knows to re-initialize. The previous silent-new-session behavior
+  // left idle clients stuck with stale session bookkeeping until the VS Code
+  // window was manually reloaded.
+  if (existingSessionId) {
+    res.status(404).json({
+      jsonrpc: "2.0",
+      error: { code: -32000, message: "Session not found — reinitialize" },
+      id: null,
+    });
     return;
   }
 
   const rawTag = typeof req.query.tag === "string" ? req.query.tag : undefined;
   const sessionTag = rawTag?.toLowerCase().replace(/[^a-z0-9_-]/g, "") || undefined;
   const newSessionId = randomUUID();
-  const clientId = sessionTag ?? `sess-${newSessionId.slice(0, 8)}`;
+  const host = (req.socket.remoteAddress || "").replace(/^::ffff:/, "") || undefined;
+  const port = req.socket.remotePort;
+  // Build a distinguishable client id: tag wins if set; otherwise use host+port
+  // so two untagged sessions from the same machine are still distinguishable.
+  const clientId = sessionTag
+    ?? (host && port ? `${host === "127.0.0.1" || host === "::1" ? "local" : host}:${port}` : `sess-${newSessionId.slice(0, 8)}`);
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => newSessionId });
   transport.onclose = () => {
-    if (transport.sessionId) delete httpTransports[transport.sessionId];
+    if (transport.sessionId) {
+      delete httpTransports[transport.sessionId];
+      delete sessions[transport.sessionId];
+    }
   };
-  await createMcpServer(clientId, sessionTag).connect(transport);
+  const mcpServer = createMcpServer(clientId, sessionTag);
+  await mcpServer.connect(transport);
+  // Stash the underlying MCP server on the transport so subsequent requests
+  // can grab clientInfo once the initialize handshake completes.
+  (transport as any).__mcpServer = (mcpServer as any).server ?? mcpServer;
   await transport.handleRequest(req, res, req.body);
-  if (transport.sessionId) httpTransports[transport.sessionId] = transport;
+  if (transport.sessionId) {
+    httpTransports[transport.sessionId] = transport;
+    const now = Date.now();
+    sessions[transport.sessionId] = {
+      clientId, tag: sessionTag, host, connectedAt: now, lastSeen: now,
+    };
+  }
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────

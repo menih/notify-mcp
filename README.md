@@ -106,6 +106,15 @@ Run multiple agents against the same notify server (e.g. one Claude session in `
 - `priority='high'` always punches through.
 - Agents can pre-flight with `get_dnd_status` to skip the round-trip when DND is on.
 
+### Heartbeat-drain (stay responsive during long work)
+Every agent that calls `get_idle_seconds` or `get_dnd_status` while busy gets any pending user inbox messages piggy-backed on the response. The server-side MCP `instructions` tell agents to call `get_idle_seconds` every 15-30 seconds during long operations so a user ping from Telegram lands within 30 seconds even if the agent hasn't called `notify` in hours. When an inbox message lands, the agent is required to fire a terse `busy-ack` back via `notify` so the user knows they were heard — even if the full response comes later.
+
+### Multi-session broadcast
+When multiple agents connect to the same server (e.g. one Claude per repo), every untagged user message is broadcast to all of them. Each agent replies with its session id, the user picks who they want to address, then targets follow-ups with `@<tag>`. The Telegram ack names the sessions the message was routed to.
+
+### Reconnect resilience
+The server returns HTTP 404 on requests with a stale `mcp-session-id` (per the MCP Streamable HTTP spec), so a client that wakes up after a server restart automatically re-initializes on its next tool call instead of staying stuck with a dead session. Idle sessions are reaped after 10 minutes of inactivity so the session list and clients pill bar stay honest.
+
 ### Idle gating (anti-buzz)
 The server publishes a policy `{ enabled, thresholdSeconds }`. Agents are **instructed** (via the MCP `instructions` field, surfaced to every connecting client) to call `get_idle_seconds` first, and **skip** sending a notification if you're actively at the keyboard. They can already see what they'd send. Only fire when you've stepped away. `priority='high'` always fires.
 

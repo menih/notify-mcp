@@ -74,6 +74,8 @@ Six tools, all server-configured (the agent never names a channel):
 
 - **Multi-channel fan-out**: desktop, Telegram, SMS, email — pick what you want
 - **Text-to-speech**: desktop notifs can be spoken out loud in a natural neural voice — 30+ voices to pick from (US/UK/AU/CA/etc.) in the config UI, off by default
+- **Heartbeat-drain**: busy agents stay responsive — a cheap `get_idle_seconds` heartbeat every 15-30 seconds piggy-backs any user messages so a Telegram ping lands within 30 seconds even during long runs
+- **Multi-session broadcast**: connect multiple Claude sessions to the same server, each with a `?tag=<project>` — untagged user messages broadcast to all of them; tagged messages route to just the matching session; clients pill bar above the activity log lets you filter per-session
 - **Two-way `ask`**: agent waits for your reply via Telegram thread or email link
 - **Real-time inbox** (SSE) for unsolicited user messages
 - **Multi-session tagging**: route a Telegram message to a specific agent with `@<tag>`

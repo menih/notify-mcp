@@ -1706,7 +1706,14 @@ app.all("/mcp", async (req, res) => {
     ?? workspaceName
     ?? earlyClientName
     ?? (host && port ? `${host === "127.0.0.1" || host === "::1" ? "local" : host}:${port}` : `sess-${newSessionId.slice(0, 8)}`);
-  const takenIds = new Set(Object.values(sessions).map(s => s.clientId));
+  // Exclude the session being re-adopted from the "taken" set — it's about to
+  // be replaced, so its old clientId should be available for reuse.
+  const adoptingId = existingSessionId && bodyIsInitialize ? existingSessionId : undefined;
+  const takenIds = new Set(
+    Object.entries(sessions)
+      .filter(([sid]) => sid !== adoptingId)
+      .map(([, s]) => s.clientId)
+  );
   let clientId = baseId;
   for (let n = 2; takenIds.has(clientId); n++) clientId = `${baseId}-${n}`;
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => newSessionId });

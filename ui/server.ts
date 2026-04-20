@@ -1,7 +1,8 @@
+#!/usr/bin/env node
 import { randomUUID } from "crypto";
 import express from "express";
 import { google } from "googleapis";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "fs";
 import { homedir, networkInterfaces } from "os";
 import { join } from "path";
 import { fileURLToPath } from "url";
@@ -791,6 +792,33 @@ interface InboxEntry { text: string; ts: string; messageId?: number; tag?: strin
 
 const pendingAsks = new Map<string, { resolve: (v: string) => void; timer: NodeJS.Timeout; tag?: string }>();
 const inboxQueue: InboxEntry[] = [];
+
+// Long-poll waiters for `wait_for_inbox`. Keyed by token; filtered by tag the
+// same way as `drainInboxFor`. When a new inbox entry arrives, resolve all
+// matching waiters immediately with that entry — they get the message as a
+// tool *result*, which every MCP client surfaces reliably (unlike server
+// notifications, which Claude Code and others frequently drop).
+interface InboxWaiter {
+  resolve: (entries: InboxEntry[]) => void;
+  timer: NodeJS.Timeout;
+  tag?: string;
+}
+const inboxWaiters = new Map<string, InboxWaiter>();
+
+// Match waiters the same way `matchesSession` matches SSE subscribers:
+// - untagged entry → every waiter is a match (broadcast)
+// - tagged entry   → only waiters with the same tag match
+function takeWaitersFor(entryTag: string | undefined): InboxWaiter[] {
+  const taken: InboxWaiter[] = [];
+  for (const [id, w] of inboxWaiters) {
+    const match = entryTag === undefined ? true : w.tag === entryTag;
+    if (match) {
+      inboxWaiters.delete(id);
+      taken.push(w);
+    }
+  }
+  return taken;
+}
 let tgPollOffset = -1;
 let lastUserMessageId: number | undefined;
 // When the user pings us from Telegram, bypass idle-gating on outbound
@@ -818,22 +846,107 @@ function matchesSession(entry: InboxEntry, sessionTag: string | undefined): bool
   return entry.tag === sessionTag;        // tagged   → only matching session
 }
 
+// ── /btw file-drop bridge ─────────────────────────────────────────────────────
+// Claude Code has no API for injecting a prompt into a running session while a
+// tool call is executing (anthropics/claude-code#27441, still open). The only
+// in-band channel is the `FileChanged` hook: when a watched file changes on
+// disk, Claude Code's hook script stdout is injected as additional context on
+// the next turn — without the agent having to poll.
+//
+// We drop every unsolicited user message into ~/.notify-mcp/inbox/<ts>.md, and
+// ship a one-liner hook in the README that globs that directory. This is the
+// closest thing to a "/btw" we can get until the client exposes a real inject
+// endpoint.
+const INBOX_DROP_DIR = join(CONFIG_DIR, "inbox");
+const INBOX_DROP_TTL_MS = 24 * 60 * 60 * 1000; // 24h — hook should have consumed within seconds
+
+function writeInboxDrop(entry: InboxEntry): void {
+  try {
+    if (!existsSync(INBOX_DROP_DIR)) mkdirSync(INBOX_DROP_DIR, { recursive: true });
+    const safeTs = entry.ts.replace(/[:.]/g, "-");
+    const tagPart = entry.tag ? `.${entry.tag}` : "";
+    const path = join(INBOX_DROP_DIR, `${safeTs}${tagPart}.md`);
+    const header = `# Unsolicited user message\n\n` +
+      `- Time: ${entry.ts}\n` +
+      (entry.tag ? `- Tag: @${entry.tag}\n` : "") +
+      `- Origin: user (out-of-band)\n\n`;
+    writeFileSync(path, header + entry.text + "\n");
+  } catch (err) {
+    log("·", "inbox-drop", `write failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+// Reap old drops so the directory doesn't grow forever. Hooks consume within
+// seconds, so anything older than a day is a message the agent never saw —
+// keep it for forensics but eventually clean up.
+setInterval(() => {
+  try {
+    if (!existsSync(INBOX_DROP_DIR)) return;
+    const now = Date.now();
+    const files = readdirSync(INBOX_DROP_DIR);
+    for (const f of files) {
+      const p = join(INBOX_DROP_DIR, f);
+      try {
+        const st = statSync(p);
+        if (now - st.mtimeMs > INBOX_DROP_TTL_MS) unlinkSync(p);
+      } catch { /* ignore */ }
+    }
+  } catch { /* ignore */ }
+}, 60 * 60 * 1000);
+
 // SSE stream of new inbox messages (server-push). Each connection may filter
 // by tag: /api/inbox/stream?tag=alphawave. Filtering rule mirrors poll/notify:
 // untagged messages always delivered; tagged messages only when tags match.
 interface SseClient { res: express.Response; tag?: string }
 const inboxStreamClients = new Set<SseClient>();
 
-function broadcastInbox(entry: InboxEntry) {
+function broadcastInbox(entry: InboxEntry): number {
   const payload = JSON.stringify(entry);
+  let delivered = 0;
   for (const c of inboxStreamClients) {
+    // Proactively drop subscribers whose socket is gone. Node's req.on("close")
+    // isn't reliable on every disconnect path (e.g. VS Code window killed hard,
+    // laptop lid shut), so check writability before every write.
+    if (c.res.destroyed || c.res.writableEnded || !c.res.writable) {
+      inboxStreamClients.delete(c);
+      continue;
+    }
     if (!matchesSession(entry, c.tag)) continue;
     try {
       c.res.write(`data: ${payload}\n\n`);
+      delivered++;
     } catch {
-      // drop on failure; the close handler will remove the client
+      inboxStreamClients.delete(c);
     }
   }
+  return delivered;
+}
+
+// Test-only: inject a fake inbox entry exactly as the Telegram listener would.
+// Gated behind NOTIFY_MCP_TEST_ENDPOINTS=1 so it's never exposed in a normal
+// production run. Used by the test suite to drive wait_for_inbox wake-up and
+// SSE broadcast paths without needing a real Telegram bot.
+if (process.env.NOTIFY_MCP_TEST_ENDPOINTS === "1") {
+  app.post("/__test__/inject-inbox", express.json(), (req, res) => {
+    const text = String(req.body?.text ?? "");
+    const tag = req.body?.tag ? String(req.body.tag).toLowerCase() : undefined;
+    if (!text) { res.status(400).json({ error: "text required" }); return; }
+    const entry: InboxEntry = { text, ts: new Date().toISOString(), tag };
+    const waiters = takeWaitersFor(tag);
+    if (waiters.length > 0) {
+      for (const w of waiters) {
+        clearTimeout(w.timer);
+        w.resolve([entry]);
+      }
+    } else {
+      inboxQueue.push(entry);
+    }
+    const sse = broadcastInbox(entry);
+    writeInboxDrop(entry);
+    log("·", "test-inject", `${text} (waiters=${waiters.length}, sse=${sse})`, tag);
+    res.json({ injected: true, waiters: waiters.length, sse });
+  });
+  log("·", "test", "NOTIFY_MCP_TEST_ENDPOINTS=1 — /__test__/inject-inbox enabled");
 }
 
 app.get("/api/inbox/stream", (req, res) => {
@@ -939,9 +1052,29 @@ async function startTelegramListener() {
             const entry: InboxEntry = {
               text, ts: new Date().toISOString(), messageId: msg.message_id, tag,
             };
-            inboxQueue.push(entry);
-            broadcastInbox(entry);
-            log("·", "inbox", text, tag);
+            // Waiters (wait_for_inbox long-poll) get first crack — they were
+            // already parked by an agent explicitly asking "wake me up when
+            // something arrives." Hand the entry off as a tool *result*, which
+            // every MCP client actually surfaces. Only queue if no one was
+            // waiting, so the message isn't delivered twice.
+            const waiters = takeWaitersFor(tag);
+            if (waiters.length > 0) {
+              for (const w of waiters) {
+                clearTimeout(w.timer);
+                w.resolve([entry]);
+              }
+              log("·", "inbox", `${text} → ${waiters.length} long-poll waiter(s)`, tag);
+            } else {
+              inboxQueue.push(entry);
+            }
+            writeInboxDrop(entry);
+            const liveSseCount = broadcastInbox(entry);
+            log("·", "inbox", `${text} (sse=${liveSseCount}, waiters=${waiters.length})`, tag);
+            // Before building the ack, prune sessions whose transport stream
+            // is dead or whose heartbeat has lapsed. Without this the ack
+            // cheerfully claims "broadcast to 3 sessions" when 2 of them are
+            // closed VS Code windows — which is exactly what prompted this fix.
+            pruneDeadSessions();
             // Build an ack that names the active sessions the user's message
             // is being routed to. If the user tagged it and no session with
             // that tag is connected, tell them plainly so they don't sit
@@ -1065,8 +1198,9 @@ BEHAVIORAL RULES for every client that connects:
    user has already configured. Say 'notif' or 'notification' instead.
 
 5. When the user sends you an unsolicited message (visible as INBOX items in
-   the 'notify' response, via 'poll', via 'get_idle_seconds' piggy-back, or
-   via the /api/inbox/stream SSE), reply to them THROUGH 'notify' so the reply
+   the 'notify' response, via 'poll', via 'wait_for_inbox', via
+   'get_idle_seconds' piggy-back, or via the /api/inbox/stream SSE), reply to
+   them THROUGH 'notify' so the reply
    actually reaches them — not just in your chat output. Multiple agents may
    be connected simultaneously — the server broadcasts every untagged inbox
    message to all of them, so the user can see who is listening. Your reply
@@ -1099,6 +1233,16 @@ BEHAVIORAL RULES for every client that connects:
    deaf to the user until its next 'notify' call — which may be minutes or
    hours away during long work. Treat 'get_idle_seconds' as the "check for
    user input" primitive, not an idle-gate check.
+
+   If your work is naturally idle (waiting for the user, between loop iters),
+   prefer 'wait_for_inbox' instead — it blocks up to 50s and returns the
+   moment the user types anything, as a tool result. That's the most reliable
+   delivery path across every MCP client (notifications over SSE are silently
+   dropped by Claude Code, Cursor, and others). Loop pattern:
+     while (true) {
+       const r = await wait_for_inbox({ timeout_seconds: 50 });
+       if (r !== "inbox:empty") handle(r);
+     }
 
 7. If your tool call fails with "MCP server not connected" / "transport
    closed" / similar — the SERVER IS ALMOST CERTAINLY FINE. Other clients are
@@ -1274,6 +1418,43 @@ function createMcpServer(clientId: string, sessionTag?: string) {
   );
 
   server.tool(
+    "wait_for_inbox",
+    "Block until the user sends an unsolicited message, or until the timeout " +
+      "expires. Returns the message(s) as tool results (the reliable MCP delivery " +
+      "path — notifications over SSE are dropped by many clients). Default timeout " +
+      "is 50s to stay under the JS SDK's 60s request timeout; keep the agent-side " +
+      "loop re-calling on empty so a quiet user doesn't leak an abandoned waiter. " +
+      "If messages are already queued for this session, returns them immediately.",
+    {
+      timeout_seconds: z.number().min(5).max(55).default(50)
+        .describe("How long to block before returning empty (5-55s)"),
+    },
+    async ({ timeout_seconds = 50 }: { timeout_seconds?: number }) => {
+      // Fast-path: if there are already messages queued for this session tag,
+      // drain and return them without parking a waiter.
+      const queued = drainInboxFor(sessionTag);
+      if (queued.length > 0) {
+        const body = queued.map(m => `[${m.ts}] ${m.text}`).join("\n");
+        return { content: [{ type: "text" as const, text: `⚠️ USER SENT YOU A MESSAGE — STOP AND RESPOND BEFORE CONTINUING:\n${body}` }] };
+      }
+      const token = randomUUID();
+      const entries = await new Promise<InboxEntry[]>((resolve) => {
+        const timer = setTimeout(() => {
+          inboxWaiters.delete(token);
+          resolve([]);
+        }, timeout_seconds * 1000);
+        inboxWaiters.set(token, { resolve, timer, tag: sessionTag });
+      });
+      if (entries.length === 0) {
+        return { content: [{ type: "text" as const, text: "inbox:empty" }] };
+      }
+      log("·", "wait_for_inbox", `${entries.length} message(s) delivered`, clientId);
+      const body = entries.map(m => `[${m.ts}] ${m.text}`).join("\n");
+      return { content: [{ type: "text" as const, text: `⚠️ USER SENT YOU A MESSAGE — STOP AND RESPOND BEFORE CONTINUING:\n${body}` }] };
+    }
+  );
+
+  server.tool(
     "get_idle_seconds",
     "Returns the number of seconds since the user's last keyboard/mouse input. " +
       "Call this periodically during long work as a cheap heartbeat — the server " +
@@ -1341,7 +1522,12 @@ const sessions: Record<string, SessionMeta> = {};
 // list and pills bar accurate even when clients vanish without closing their
 // transport (VS Code window closed, laptop lid shut, network died). On next
 // reconnect the client gets a 404 and reinitializes cleanly.
-const SESSION_IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
+//
+// The MCP instructions force agents to call get_idle_seconds every 15–30s as a
+// keepalive, so any session that hasn't made *any* request in 90s is almost
+// certainly dead. Keep this tight — the whole point is that stale sessions
+// stop showing up in broadcast acks.
+const SESSION_IDLE_TIMEOUT_MS = 90 * 1000;
 setInterval(() => {
   const now = Date.now();
   for (const [sessionId, meta] of Object.entries(sessions)) {
@@ -1352,7 +1538,16 @@ setInterval(() => {
       delete sessions[sessionId];
     }
   }
-}, 60_000);
+  // Prune SSE inbox subscribers whose underlying socket has died. Node
+  // surfaces dead sockets as destroyed/writableEnded — if we don't sweep
+  // these, broadcastInbox quietly writes to ghosts and the ack count lies
+  // to the user ("Broadcast to 3 sessions" when there's really one).
+  for (const c of inboxStreamClients) {
+    if (c.res.destroyed || c.res.writableEnded || !c.res.writable) {
+      inboxStreamClients.delete(c);
+    }
+  }
+}, 15_000);
 
 function listActiveSessions(): SessionMeta[] {
   return Object.values(sessions);
@@ -1361,6 +1556,36 @@ function listActiveSessions(): SessionMeta[] {
 function sessionsMatchingTag(tag: string | undefined): SessionMeta[] {
   if (!tag) return listActiveSessions();
   return listActiveSessions().filter(s => s.tag === tag);
+}
+
+// Synchronous best-effort liveness check before we count sessions in an ack.
+// The transport's SDK doesn't expose a "ping" API, but it does hold a ref to
+// the response stream of the last GET the client opened — if that stream is
+// destroyed/ended, the client is gone. We also use the `lastSeen` shortcut:
+// if a session hasn't made a request in more than (idle+grace) seconds and
+// the MCP instructions require a 15-30s heartbeat, it's dead. Be lenient —
+// false-positives here result in lying to the user; false-negatives just
+// cause a harmless write that the next reap will clean up.
+const LIVE_GRACE_MS = 60_000;
+function pruneDeadSessions(): void {
+  const now = Date.now();
+  for (const [sessionId, meta] of Object.entries(sessions)) {
+    const stale = now - meta.lastSeen > LIVE_GRACE_MS;
+    const transport = httpTransports[sessionId] as any;
+    // The SDK stashes the active response stream on the transport for server-
+    // sent notifications. If it exists and is dead, prune. Guarded because
+    // the internal field name isn't stable across SDK versions.
+    const streams: any[] = [transport?._streams, transport?._responseStreams, transport?._sseResponse]
+      .filter(Boolean)
+      .flatMap(s => (s instanceof Map ? [...s.values()] : Array.isArray(s) ? s : [s]));
+    const deadStream = streams.length > 0 && streams.every(r => r?.destroyed || r?.writableEnded || r?.writable === false);
+    if (stale || deadStream) {
+      log("·", "session", `pruned unresponsive session ${meta.clientId} (stale=${stale}, deadStream=${deadStream})`);
+      try { httpTransports[sessionId]?.close(); } catch { /* ignore */ }
+      delete httpTransports[sessionId];
+      delete sessions[sessionId];
+    }
+  }
 }
 
 function sessionDisplay(s: SessionMeta): string {
@@ -1435,10 +1660,76 @@ app.all("/mcp", async (req, res) => {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
-app.listen(PORT, "0.0.0.0", () => {
+const httpServer = app.listen(PORT, "0.0.0.0", () => {
   const ip = getLocalIp();
   console.log(`\n  Claude Notify config UI  → http://localhost:${PORT}`);
   console.log(`  MCP endpoint (remote)    → http://${ip}:${PORT}/mcp\n`);
   startTelegramListener();
   open(`http://localhost:${PORT}`).catch(() => {});
 });
+
+// TCP-level keepalive on every incoming socket. Without this, a client that
+// vanishes (laptop lid, killed VS Code, WiFi drop) leaves a half-open TCP
+// connection that Node never notices — the SDK's `onclose` therefore never
+// fires and the session goes zombie. With SO_KEEPALIVE the OS probes every
+// 15s and kills the socket within a couple minutes of silence, which fires
+// our reaper and clears the session bookkeeping.
+httpServer.on("connection", (socket) => {
+  socket.setKeepAlive(true, 15_000);
+});
+// keepAliveTimeout gates how long Node holds an HTTP/1.1 keep-alive idle
+// connection open before closing it. Default is 5s, which was fine for
+// short-lived requests but kills long-poll waiters and MCP GET streams
+// prematurely. Bump above the 55s long-poll ceiling so the socket stays
+// alive across the whole wait. headersTimeout must exceed it.
+httpServer.keepAliveTimeout = 75_000;
+httpServer.headersTimeout = 80_000;
+
+// App-level keepalive on every active MCP GET SSE stream. The SDK doesn't
+// emit any bytes on an idle stream, so intermediate proxies and some clients
+// time out the stream after ~60s of silence. We write an SSE *comment* line
+// (`: keepalive\n\n`) directly to each live response — comments are ignored
+// by SSE parsers but reset proxy idle timers and surface dead sockets as
+// write errors that we can catch and reap. Pattern is the community-standard
+// fix for typescript-sdk#270.
+setInterval(() => {
+  for (const [sid, transport] of Object.entries(httpTransports)) {
+    const t = transport as any;
+    // Internal field names vary across SDK versions. Collect every candidate
+    // response stream reference; the ones we find are either Response-like
+    // objects with .write or Maps/arrays of them. Write-failure is the signal
+    // that tells us the socket is dead.
+    const candidates: any[] = [];
+    for (const key of ["_streamMapping", "_streams", "_responseStreams", "_sseResponse", "_responses"]) {
+      const v = t[key];
+      if (!v) continue;
+      if (v instanceof Map) candidates.push(...v.values());
+      else if (Array.isArray(v)) candidates.push(...v);
+      else candidates.push(v);
+    }
+    let wrote = false;
+    let allDead = candidates.length > 0;
+    for (const r of candidates) {
+      if (!r || r.destroyed || r.writableEnded || r.writable === false) continue;
+      try {
+        r.write(`: keepalive ${Date.now()}\n\n`);
+        wrote = true;
+        allDead = false;
+      } catch {
+        // write failed — socket is dead, move on
+      }
+    }
+    if (candidates.length > 0 && allDead) {
+      try { httpTransports[sid]?.close(); } catch { /* ignore */ }
+      delete httpTransports[sid];
+      delete sessions[sid];
+    }
+    // Touch lastSeen on a successful keepalive write so the reaper doesn't
+    // kill a session that's quietly connected but idle. lastSeen normally
+    // tracks inbound requests; extending it to "stream is verified writable"
+    // is fine — if the write succeeds, the client really is still there.
+    if (wrote && sessions[sid]) {
+      sessions[sid].lastSeen = Date.now();
+    }
+  }
+}, 20_000);

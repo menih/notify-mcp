@@ -1,11 +1,12 @@
 {
   "name": "omni-notify-mcp",
-  "version": "1.1.8",
+  "version": "1.2.0",
   "description": "An MCP server that lets AI agents (Claude, Cursor, etc.) reach you on any channel — desktop, Telegram, SMS, email — with two-way ask/reply, real-time inbox push, Do Not Disturb, idle gating, multi-session routing, and a one-page web UI for setup. Zero config code; configure once, agents call notify/ask.",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
-    "omni-notify-mcp": "dist/index.js"
+    "omni-notify-mcp": "dist/index.js",
+    "omni-notify-ui": "dist/ui/server.js"
   },
   "files": [
     "dist/",
@@ -47,6 +48,7 @@
     "build:ui": "tsc -p ui/tsconfig.json",
     "start": "node dist/index.js",
     "ui": "npm run build:ui && node dist/ui/server.js",
+    "test": "npm run build && node --test tests/",
     "prepublishOnly": "npm run build:mcp"
   },
   "dependencies": {

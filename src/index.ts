@@ -1,175 +1,371 @@
 #!/usr/bin/env node
+/**
+ * Stdio bridge for notify-mcp.
+ *
+ * This is the Claude Code / Cursor / Codex stdio entrypoint. It is a *thin*
+ * foreground process — all state (config, inbox, pending asks, Telegram
+ * listener) lives in the long-running HTTP server (`ui/server.js`, default
+ * port 3737). The bridge:
+ *
+ *   1. Ensures the HTTP server is running (auto-spawns it detached if not).
+ *   2. Subscribes to /api/inbox/stream via SSE and re-emits each unsolicited
+ *      user message as a `notifications/claude/channel` notification to the
+ *      attached client. Claude Code (v2.1.80+) surfaces those as synthetic
+ *      user turns, which is the only push path that reliably crosses the
+ *      client boundary — regular MCP notifications are dropped by most
+ *      clients (modelcontextprotocol/modelcontextprotocol#1192).
+ *   3. Exposes the full tool surface (`notify`, `ask`, `poll`, `wait_for_inbox`,
+ *      `get_idle_seconds`, `get_idle_config`, `get_dnd_status`, `reply`) and
+ *      proxies every call to the HTTP /mcp endpoint so multi-session routing,
+ *      DND, idle gating, etc. all work identically to the HTTP transport.
+ *
+ * The net effect: users can `claude --channels notify-mcp@<registry>` (or
+ * run `npx omni-notify-mcp` as a plain stdio MCP server) and get push-to-agent
+ * delivery without ever touching a .mcp.json or a port number.
+ */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { randomUUID } from "crypto";
+import { spawn } from "child_process";
+import { existsSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 import { z } from "zod";
-import { loadConfig } from "./config.js";
-import { sendDesktop } from "./channels/desktop.js";
-import { sendTelegram } from "./channels/telegram.js";
-import { sendWhatsApp } from "./channels/whatsapp.js";
-import { sendSms } from "./channels/sms.js";
-import { sendEmail } from "./channels/email.js";
 
-const config = loadConfig();
+const PORT = process.env.NOTIFY_MCP_PORT ? parseInt(process.env.NOTIFY_MCP_PORT) : 3737;
+const BASE = `http://localhost:${PORT}`;
+const SESSION_TAG = (process.env.NOTIFY_MCP_TAG ?? "").toLowerCase().replace(/[^a-z0-9_-]/g, "") || undefined;
+const CLIENT_NAME = "claude-channel-bridge";
 
-// ── Telegram listener ─────────────────────────────────────────────────────────
+// ── 1. Ensure the HTTP server is up ───────────────────────────────────────────
 
-const pendingAsks = new Map<string, { resolve: (v: string) => void; timer: NodeJS.Timeout }>();
-const inboxQueue: Array<{ text: string; ts: string }> = [];
-let tgPollOffset = -1;
-
-async function initTgOffset(token: string): Promise<number> {
-  const r = await fetch(`https://api.telegram.org/bot${token}/getUpdates?offset=-1&timeout=0`);
-  const json = await r.json() as any;
-  const results: any[] = json.result ?? [];
-  return results.length > 0 ? results[results.length - 1].update_id + 1 : 0;
-}
-
-async function startTelegramListener() {
-  while (true) {
-    try {
-      const cfg = loadConfig();
-      const { token, chatId } = cfg.telegram ?? {};
-      if (!token || !chatId || !cfg.telegram?.enabled) {
-        await new Promise(r => setTimeout(r, 5000));
-        continue;
-      }
-      if (tgPollOffset < 0) {
-        tgPollOffset = await initTgOffset(token);
-      }
-      const r = await fetch(
-        `https://api.telegram.org/bot${token}/getUpdates?offset=${tgPollOffset}&timeout=10`
-      );
-      const json = await r.json() as any;
-      for (const update of json.result ?? []) {
-        tgPollOffset = update.update_id + 1;
-        const msg = update.message;
-        if (msg?.chat?.id?.toString() === chatId && msg.text) {
-          const first = [...pendingAsks.entries()][0];
-          if (first) {
-            const [id, pending] = first;
-            clearTimeout(pending.timer);
-            pendingAsks.delete(id);
-            pending.resolve(msg.text);
-          } else {
-            inboxQueue.push({ text: msg.text, ts: new Date().toISOString() });
-          }
-        }
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!msg.includes("terminated") && !msg.includes("aborted")) {
-        await new Promise(r => setTimeout(r, 2000));
-      }
-    }
+async function serverIsUp(): Promise<boolean> {
+  try {
+    const r = await fetch(`${BASE}/mcp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 0, method: "initialize", params: {} }),
+      signal: AbortSignal.timeout(1500),
+    });
+    // Any HTTP response (including 400/406 from malformed init) means the
+    // server is alive and speaking HTTP. Real "down" surfaces as a throw.
+    return r.status > 0;
+  } catch {
+    return false;
   }
 }
 
-startTelegramListener();
+function spawnUiServerIfNeeded(): void {
+  const here = dirname(fileURLToPath(import.meta.url));
+  // dist/ layout: src/index.ts → dist/index.js; ui → dist/ui/server.js
+  const candidates = [
+    join(here, "ui", "server.js"),
+    join(here, "..", "ui", "server.js"),
+    join(here, "..", "dist", "ui", "server.js"),
+  ];
+  const uiPath = candidates.find(p => existsSync(p));
+  if (!uiPath) {
+    stderr(`[bridge] could not locate ui/server.js near ${here} — skipping auto-spawn`);
+    return;
+  }
+  stderr(`[bridge] auto-spawning UI server: ${uiPath}`);
+  const child = spawn(process.execPath, [uiPath], {
+    detached: true,
+    stdio: "ignore",
+    env: { ...process.env, PORT: String(PORT) },
+  });
+  child.unref();
+}
 
-// ── MCP server ────────────────────────────────────────────────────────────────
+async function waitForServer(maxMs = 15_000): Promise<boolean> {
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    if (await serverIsUp()) return true;
+    await new Promise(r => setTimeout(r, 500));
+  }
+  return false;
+}
 
-const server = new McpServer({
-  name: "omni-notify-mcp",
-  version: "1.0.0",
-});
+function stderr(line: string) {
+  // stdio transport uses stdout for JSON-RPC — all logging MUST go to stderr.
+  try { process.stderr.write(`${line}\n`); } catch { /* ignore */ }
+}
+
+// ── 2. HTTP /mcp session — the bridge itself is an MCP client of the server ──
+// We run a single persistent MCP-over-HTTP session per bridge process and
+// forward every local stdio tool call through it. Using one shared session
+// (not per-tool-call) keeps the tag-based routing, waiter parking, and inbox
+// draining all consistent with what the HTTP server sees.
+
+let httpSessionId: string | undefined;
+let httpRpcId = 1;
+
+async function httpRpc(method: string, params?: unknown, isNotification = false): Promise<any> {
+  // JSON-RPC notifications (method name starts with `notifications/` or the
+  // caller says so) carry no `id` and get no response. Spec-compliant servers
+  // return 202 Accepted with empty body.
+  const notif = isNotification || method.startsWith("notifications/");
+  const body: Record<string, unknown> = { jsonrpc: "2.0", method, params: params ?? {} };
+  if (!notif) body.id = httpRpcId++;
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Accept": "application/json, text/event-stream",
+  };
+  if (httpSessionId) headers["mcp-session-id"] = httpSessionId;
+  const tagQuery = SESSION_TAG ? `?tag=${encodeURIComponent(SESSION_TAG)}` : "";
+  const r = await fetch(`${BASE}/mcp${tagQuery}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    // Long-poll tools may block up to ~55s server-side. Give the fetch
+    // generous headroom but not infinite, so a wedged server surfaces fast.
+    signal: AbortSignal.timeout(120_000),
+  });
+  // The server returns 404 when our cached session is stale (spec-compliant
+  // behavior after a server restart). Clear and retry once with a fresh init.
+  if (r.status === 404 && httpSessionId) {
+    httpSessionId = undefined;
+    await httpInitialize();
+    return httpRpc(method, params, isNotification);
+  }
+  if (r.status >= 500) {
+    throw new Error(`HTTP ${r.status} from /mcp: ${await r.text().catch(() => "")}`);
+  }
+  const sid = r.headers.get("mcp-session-id");
+  if (sid && !httpSessionId) httpSessionId = sid;
+
+  if (notif) return undefined;
+
+  const ctype = r.headers.get("content-type") ?? "";
+  const raw = await r.text();
+  if (ctype.includes("application/json")) {
+    return JSON.parse(raw);
+  }
+  // SSE framing: pull the first data: line as the JSON-RPC response.
+  for (const line of raw.split(/\r?\n/)) {
+    if (line.startsWith("data:")) {
+      const json = line.slice(5).trim();
+      if (json) return JSON.parse(json);
+    }
+  }
+  throw new Error(`unexpected response from /mcp: ${raw.slice(0, 200)}`);
+}
+
+async function httpInitialize(): Promise<void> {
+  const res = await httpRpc("initialize", {
+    protocolVersion: "2024-11-05",
+    capabilities: {},
+    clientInfo: { name: CLIENT_NAME, version: "1.0" },
+  });
+  if (res?.error) throw new Error(`initialize failed: ${JSON.stringify(res.error)}`);
+  // Follow-up: the spec requires a notifications/initialized after initialize.
+  await httpRpc("notifications/initialized").catch(() => {});
+}
+
+// ── 3. Stdio MCP server — the thing Claude Code / Cursor attaches to ─────────
+
+const server = new McpServer(
+  { name: "notify-mcp", version: "1.2.0" },
+  {
+    // Declare the claude/channel capability so Claude Code knows to surface
+    // our notifications/claude/channel events as synthetic user turns. The
+    // `reply` tool below is how Claude hands the agent's response back to us.
+    // Reference: https://code.claude.com/docs/en/channels-reference
+    capabilities: {
+      experimental: { "claude/channel": {} },
+    },
+    instructions:
+      "This is the stdio bridge for notify-mcp. It pushes unsolicited user " +
+      "messages to the agent via `notifications/claude/channel` when the host " +
+      "supports Channels (Claude Code v2.1.80+). Otherwise call `wait_for_inbox` " +
+      "as a long-poll to reliably receive user messages as tool results.",
+  }
+);
+
+// Thin proxy: forward a tool call to the HTTP server and return its content
+// block array verbatim. Error shape matches what the SDK expects from tool
+// handlers.
+async function proxyToolCall(name: string, args: Record<string, unknown>) {
+  const res = await httpRpc("tools/call", { name, arguments: args });
+  if (res?.error) {
+    return { content: [{ type: "text" as const, text: `Error: ${res.error.message ?? JSON.stringify(res.error)}` }], isError: true };
+  }
+  const result = res?.result;
+  if (result?.content && Array.isArray(result.content)) {
+    return { content: result.content, isError: !!result.isError };
+  }
+  return { content: [{ type: "text" as const, text: JSON.stringify(result ?? {}) }] };
+}
 
 server.tool(
   "notify",
-  "Send a notification through configured channels (desktop, Telegram, WhatsApp, SMS, email). " +
-    "Priority: low=email only; normal=desktop+telegram+email; high=all channels. " +
-    "Use for: task milestones, questions needing user input, catastrophic findings, long task completion.",
+  "Send a notification to the user. Delivery channels and DND are server-configured.",
   {
-    message: z.string().max(500).describe("Notification message, max 500 chars"),
-    priority: z
-      .enum(["low", "normal", "high"])
-      .default("normal")
-      .describe("low=email only; normal=desktop+telegram+email; high=desktop+telegram+whatsapp+sms+email"),
+    message: z.string().max(500),
+    priority: z.enum(["low", "normal", "high"]).default("normal"),
   },
-  async ({ message, priority }: { message: string; priority: "low" | "normal" | "high" }) => {
-    const results: string[] = [];
-    const errors: string[] = [];
-
-    const send = async (name: string, fn: () => Promise<void>) => {
-      try { await fn(); results.push(name); }
-      catch (err) { errors.push(`${name}: ${err instanceof Error ? err.message : String(err)}`); }
-    };
-
-    if (priority === "normal" || priority === "high") {
-      await send("desktop", () => sendDesktop(config.desktop, message));
-      await send("telegram", () => sendTelegram(config.telegram, message));
-    }
-    if (priority === "high") {
-      await send("whatsapp", () => sendWhatsApp(config.whatsapp, message));
-      await send("sms", () => sendSms(config.sms, message));
-    }
-    await send("email", () => sendEmail(config.email, message));
-
-    const summary = [
-      results.length > 0 ? `Sent via: ${results.join(", ")}` : null,
-      errors.length > 0 ? `Errors: ${errors.join("; ")}` : null,
-    ].filter(Boolean).join(" | ");
-
-    return { content: [{ type: "text", text: summary || "No channels delivered" }] };
-  }
+  async (args) => proxyToolCall("notify", args)
 );
 
 server.tool(
   "ask",
-  "Send a question to the user via Telegram and wait for their reply. " +
-    "Use when a decision is needed before continuing — e.g. 'Should I delete these files?'",
+  "Send a question to the user and wait for their reply.",
   {
-    question: z.string().max(500).describe("The question to ask the user"),
-    timeout_seconds: z.number().min(30).max(3600).default(300)
-      .describe("How long to wait for a reply in seconds (default 5 min)"),
+    question: z.string().max(500),
+    timeout_seconds: z.number().min(30).max(3600).default(300),
   },
-  async ({ question, timeout_seconds = 300 }: { question: string; timeout_seconds?: number }) => {
-    const cfg = loadConfig();
-    if (!cfg.telegram?.enabled || !cfg.telegram.token || !cfg.telegram.chatId) {
-      return { content: [{ type: "text", text: "Error: Telegram not configured. Enable it in ~/.notify-mcp/config.json" }] };
-    }
-
-    await fetch(`https://api.telegram.org/bot${cfg.telegram.token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: cfg.telegram.chatId,
-        text: `❓ ${question}\n\nReply to this message with your answer.`,
-      }),
-    });
-
-    const token = randomUUID();
-    const reply = await new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pendingAsks.delete(token);
-        reject(new Error(`No reply received within ${timeout_seconds}s`));
-      }, timeout_seconds * 1000);
-      pendingAsks.set(token, { resolve, timer });
-    });
-
-    return { content: [{ type: "text", text: reply }] };
-  }
+  async (args) => proxyToolCall("ask", args)
 );
 
 server.tool(
   "poll",
-  "Check for unsolicited messages the user sent on Telegram (not in response to an ask). " +
-    "Returns queued messages and clears the queue. Returns 'inbox:empty' if nothing pending. " +
-    "Call this at the start of each work cycle.",
+  "Drain pending unsolicited user messages.",
   {},
-  async () => {
-    if (inboxQueue.length === 0) {
-      return { content: [{ type: "text", text: "inbox:empty" }] };
-    }
-    const messages = inboxQueue.splice(0);
-    return {
-      content: [{
-        type: "text",
-        text: messages.map(m => `[${m.ts}] ${m.text}`).join("\n"),
-      }],
-    };
+  async () => proxyToolCall("poll", {})
+);
+
+server.tool(
+  "wait_for_inbox",
+  "Block until an unsolicited user message arrives or timeout expires. Reliable " +
+    "delivery across every MCP client (messages come back as tool results).",
+  {
+    timeout_seconds: z.number().min(5).max(55).default(50),
+  },
+  async (args) => proxyToolCall("wait_for_inbox", args)
+);
+
+server.tool(
+  "get_idle_seconds",
+  "Seconds since user's last keyboard/mouse input. Drains inbox as a side-effect.",
+  {},
+  async () => proxyToolCall("get_idle_seconds", {})
+);
+
+server.tool(
+  "get_idle_config",
+  "Server's idle gating policy. Drains inbox as a side-effect.",
+  {},
+  async () => proxyToolCall("get_idle_config", {})
+);
+
+server.tool(
+  "get_dnd_status",
+  "Current DND state. Drains inbox as a side-effect.",
+  {},
+  async () => proxyToolCall("get_dnd_status", {})
+);
+
+// `reply` is the Channels return-path: Claude Code invokes it when the agent
+// has produced a response to a channel-delivered user message. We just funnel
+// it straight through `notify` so it flows to whatever channel the user is
+// actually reading (Telegram, desktop, email, ...).
+server.tool(
+  "reply",
+  "Reply to the user's most recent channel message. Routes through notify so " +
+    "the response reaches whichever channel the user is reading.",
+  {
+    message: z.string().max(2000).describe("The reply text to deliver"),
+    priority: z.enum(["low", "normal", "high"]).default("normal"),
+  },
+  async ({ message, priority }) => {
+    const tagPrefix = SESSION_TAG ? `[@${SESSION_TAG}] ` : "";
+    return proxyToolCall("notify", { message: `${tagPrefix}${message}`, priority });
   }
 );
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
+// ── 4. SSE subscriber — the push channel ─────────────────────────────────────
+
+interface InboxEvent { text: string; ts: string; tag?: string }
+
+async function subscribeInbox(): Promise<void> {
+  const tagQuery = SESSION_TAG ? `?tag=${encodeURIComponent(SESSION_TAG)}` : "";
+  // Reconnect forever with backoff. We don't care about replay; the
+  // file-drop bridge and queue handle the "missed while offline" window.
+  let backoff = 1000;
+  while (true) {
+    try {
+      const r = await fetch(`${BASE}/api/inbox/stream${tagQuery}`, {
+        headers: { "Accept": "text/event-stream" },
+      });
+      if (!r.ok || !r.body) throw new Error(`stream HTTP ${r.status}`);
+      backoff = 1000; // reset on successful connect
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buffer.indexOf("\n\n")) !== -1) {
+          const frame = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          // SSE frame: may include multiple "data:" lines. We emit on each.
+          for (const line of frame.split(/\r?\n/)) {
+            if (!line.startsWith("data:")) continue;
+            const payload = line.slice(5).trim();
+            if (!payload) continue;
+            try {
+              const entry = JSON.parse(payload) as InboxEvent;
+              await emitChannelEvent(entry);
+            } catch (err) {
+              stderr(`[bridge] bad SSE payload: ${err instanceof Error ? err.message : String(err)}`);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      stderr(`[bridge] inbox stream closed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    await new Promise(r => setTimeout(r, backoff));
+    backoff = Math.min(30_000, backoff * 2);
+  }
+}
+
+async function emitChannelEvent(entry: InboxEvent): Promise<void> {
+  // Emit the new Claude Code Channels notification *and* the generic
+  // `notifications/message` as a belt-and-suspenders approach: hosts that
+  // ignore `notifications/claude/channel` may still surface the message as
+  // a log line. Both are fire-and-forget; a failure just means the peer
+  // closed the stdio transport (we'll notice on the next tool call).
+  const content = entry.tag ? `[@${entry.tag}] ${entry.text}` : entry.text;
+  try {
+    await (server.server as any).notification({
+      method: "notifications/claude/channel",
+      params: {
+        content,
+        meta: { ts: entry.ts, tag: entry.tag ?? null, source: "notify-mcp" },
+      },
+    });
+  } catch {
+    // client doesn't support the experimental capability — that's fine,
+    // wait_for_inbox is the universal fallback.
+  }
+}
+
+// ── 5. Wire it up ────────────────────────────────────────────────────────────
+
+async function main(): Promise<void> {
+  if (!(await serverIsUp())) {
+    spawnUiServerIfNeeded();
+    if (!(await waitForServer())) {
+      stderr(`[bridge] HTTP server at ${BASE} did not come up within 15s — giving up on push; tool calls will fail.`);
+    }
+  }
+
+  try { await httpInitialize(); }
+  catch (err) { stderr(`[bridge] initial HTTP initialize failed: ${err instanceof Error ? err.message : String(err)}`); }
+
+  // Fire-and-forget: the stdio transport should be usable immediately; the
+  // push channel attaches as soon as the SSE handshake completes.
+  subscribeInbox().catch(err => stderr(`[bridge] inbox subscriber crashed: ${err instanceof Error ? err.message : String(err)}`));
+
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  stderr(`[bridge] stdio MCP bridge ready (tag=${SESSION_TAG ?? "none"}, port=${PORT})`);
+}
+
+main().catch(err => {
+  stderr(`[bridge] fatal: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+  process.exit(1);
+});

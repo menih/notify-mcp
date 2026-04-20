@@ -102,11 +102,11 @@ main {
   flex: 1;
   min-height: 0;
   height: 100%;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  flex-wrap: wrap;
-  align-content: flex-start;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-auto-rows: min-content;
+  align-content: start;
   gap: 12px;
 }
 
@@ -207,8 +207,9 @@ main {
 /* ── Cards ───────────────────────────────────────────────────────────────── */
 
 .card {
-  width: 280px;
+  width: auto;
   max-width: 100%;
+  min-width: 0;
   background: var(--surface);
   border: 2px solid #4a4a5a;
   border-radius: var(--r);
@@ -362,6 +363,27 @@ input[type="time"] {
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
 }
 input::placeholder { color: #cdcdda; opacity: 1; }
+
+select {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 8px 11px;
+  border: 2px solid #7a7a95;
+  border-radius: 7px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #ffffff;
+  background: #55556a;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+  color-scheme: dark;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+select:hover { border-color: #9a9ab5; }
+select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(124,109,250,.15); }
 input[type="text"]:hover,
 input[type="email"]:hover,
 input[type="tel"]:hover,

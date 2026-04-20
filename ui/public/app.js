@@ -117,14 +117,16 @@ function updateBadges() {
     email.connectedEmail ? "Connected" : email.clientId ? "Credentials saved" : "Not configured");
 
   const tg = config.telegram ?? {};
+  const tgReady = tg.token && tg.chatId;
   setBadge("telegram",
-    tg.enabled && tg.token && tg.chatId ? "ok" : tg.token ? "warn" : "idle",
-    tg.enabled && tg.token && tg.chatId ? "Configured" : tg.token ? "Incomplete" : "Not configured");
+    tg.enabled && tgReady ? "ok" : tgReady ? "warn" : tg.token ? "warn" : "idle",
+    tg.enabled && tgReady ? "Configured" : tgReady ? "Disabled" : tg.token ? "Incomplete" : "Not configured");
 
-const sms = config.sms ?? {};
+  const sms = config.sms ?? {};
+  const smsReady = sms.accountSid && sms.authToken;
   setBadge("sms",
-    sms.enabled && sms.accountSid && sms.authToken ? "ok" : sms.accountSid ? "warn" : "idle",
-    sms.enabled && sms.accountSid && sms.authToken ? "Configured" : sms.accountSid ? "Incomplete" : "Not configured");
+    sms.enabled && smsReady ? "ok" : smsReady ? "warn" : sms.accountSid ? "warn" : "idle",
+    sms.enabled && smsReady ? "Configured" : smsReady ? "Disabled" : sms.accountSid ? "Incomplete" : "Not configured");
 
   // DND badge: "Active" (red), "Scheduled" (warn), or "Off" (idle)
   const dnd = config.dnd ?? {};
@@ -187,7 +189,8 @@ async function loadVoices() {
     for (const v of byLocale[locale].sort((a, b) => a.shortName.localeCompare(b.shortName))) {
       const opt = document.createElement("option");
       opt.value = v.shortName;
-      opt.textContent = `${v.shortName.replace(locale + "-", "")} (${v.gender})`;
+      const name = v.shortName.replace(locale + "-", "").replace(/Neural$/, "").replace(/Multilingual$/, " (Multi)");
+      opt.textContent = `${name} · ${v.gender}`;
       if (v.shortName === current) opt.selected = true;
       og.appendChild(opt);
     }

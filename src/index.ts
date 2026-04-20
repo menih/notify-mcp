@@ -178,7 +178,13 @@ const server = new McpServer(
       "This is the stdio bridge for notify-mcp. It pushes unsolicited user " +
       "messages to the agent via `notifications/claude/channel` when the host " +
       "supports Channels (Claude Code v2.1.80+). Otherwise call `wait_for_inbox` " +
-      "as a long-poll to reliably receive user messages as tool results.",
+      "as a long-poll to reliably receive user messages as tool results.\n\n" +
+      "ALWAYS call `notify` when: (a) a task that took >60s of wall-clock time " +
+      "just finished (success or failure), (b) you have a question or need a " +
+      "decision, (c) something important happened the user needs to know right " +
+      "now. Idle/DND gating is handled server-side — fire notify and let the " +
+      "server decide routing. Err on the side of notifying: a wrong-call gets " +
+      "silently downgraded by idle gating; a missed notify costs the user hours.",
   }
 );
 

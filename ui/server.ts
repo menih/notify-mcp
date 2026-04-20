@@ -1175,12 +1175,37 @@ channels are in use — just call 'notify' or 'ask' with a generic message.
 
 BEHAVIORAL RULES for every client that connects:
 
-1. Always call 'notify' for milestones, decisions, completions. The SERVER
-   handles all gating (DND, idle, channel routing). You do not need to
-   pre-flight with 'get_idle_seconds' — the server checks it itself and
-   downgrades the delivery automatically. When the user is active, the server
-   will play a local desktop sound+banner so they know something happened
-   (without blasting their phone). Just call 'notify'.
+1. ALWAYS call 'notify' in these three situations — idle or not, DND or not,
+   the server decides routing, you decide whether to fire:
+
+   (a) LONG PROCESSING FINISHED. Any single task that took more than ~60
+       seconds of wall-clock time (long build, test run, backtest, migration,
+       big refactor, multi-step plan) gets a 'notify' the moment it completes
+       — success OR failure. Rule of thumb: if the user could have reasonably
+       walked away to grab coffee while you ran, they need a ping on the way
+       back. Don't try to guess whether they were watching. Just notify.
+
+   (b) YOU HAVE A QUESTION OR NEED A DECISION. Any time you're about to ask
+       the user something — "should I delete these?", "which branch?",
+       "proceed with plan B?" — fire 'notify' (or 'ask' for blocking
+       two-way). Silent questions in the terminal get missed; a notification
+       does not.
+
+   (c) SOMETHING IMPORTANT HAPPENED that the user needs to know about right
+       now. Examples: a test suddenly failed after being green, a destructive
+       operation is about to run, you found a security issue, a deploy
+       succeeded, a production service looks degraded, you hit an
+       unrecoverable error. When in doubt on importance, ERR ON THE SIDE OF
+       NOTIFYING — the server's idle gating will automatically downgrade a
+       mis-judged 'normal' to a silent desktop banner if the user is active,
+       so the cost of over-notifying is near zero. The cost of missing a
+       real event is that the user finds out 4 hours later.
+
+   The SERVER handles all routing (DND, idle threshold, channel selection,
+   priority escalation). You do NOT need to pre-flight with
+   'get_idle_seconds' before these three triggers — fire 'notify' and let
+   the server decide. get_idle_seconds is the HEARTBEAT primitive (rule 6),
+   not a gate on legitimate milestones.
 
 2. Use priority correctly:
    - 'low'    = email only — for low-stakes status (background completion).

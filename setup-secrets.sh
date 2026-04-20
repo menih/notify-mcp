@@ -1,17 +1,20 @@
 #!/bin/bash
-# Brain-dead guided setup for release secrets. Walks you through getting both
-# the npm token and the VS Code Marketplace PAT, with hand-held instructions
-# and direct URLs. Tokens are read with hidden input — they don't show on
-# screen and don't end up in shell history.
+# Smart guided setup for release secrets. Detects which tokens are already
+# valid and skips them — so you only get prompted for what's actually broken
+# or missing.
 #
-# Run once: bash ./setup-secrets.sh
-# Future releases: bash ./release.sh
+# Run anytime: bash ./setup-secrets.sh
+#   - First time:   prompts for both tokens
+#   - Token expired: detects and prompts for just that one
+#   - Both valid:   says "all good" and exits
+#
+# Tokens read with hidden input (no echo, no shell history). Saved to
+# ~/.notify-mcp-secrets with chmod 600.
 
 set -e
 
 SECRETS_FILE="$HOME/.notify-mcp-secrets"
 
-# Try to open URLs in the browser automatically (cross-platform).
 open_url() {
   local url="$1"
   if command -v start >/dev/null 2>&1; then
@@ -25,110 +28,195 @@ open_url() {
 
 hr() { echo "--------------------------------------------------------------------------------"; }
 
-clear || true
-echo ""
-hr
-echo "  omni-notify-mcp — one-time release setup"
-hr
-echo ""
-echo "  This walks you through getting two tokens:"
-echo "    1. npm token       — for publishing the npm package"
-echo "    2. Marketplace PAT — for publishing the VS Code extension"
-echo ""
-echo "  Both tokens get saved to: $SECRETS_FILE (chmod 600)"
-echo "  After this, every release is just: bash ./release.sh"
-echo ""
-read -rp "  Press Enter to begin..." _
-
-# ── 1. npm token ─────────────────────────────────────────────────────────────
-clear || true
-echo ""
-hr
-echo "  STEP 1 of 2 — npm token"
-hr
-echo ""
-echo "  URL (opening in your browser):"
-echo "    https://www.npmjs.com/settings/karish911/tokens"
-echo ""
-echo "  Steps:"
-echo "    1. Click 'Generate New Token' (top-right)"
-echo "    2. Pick 'Granular Access Token'"
-echo "    3. Token name: omni-notify-publish"
-echo "    4. Expiration: 90 days (their max)"
-echo "    5. Bypass 2FA: ✅ check it (so you don't need an OTP every release)"
-echo "    6. Permissions: Read and write"
-echo "    7. Packages and scopes: pick 'All packages'"
-echo "       (or specifically 'omni-notify-mcp' if you want narrower scope)"
-echo "    8. Click 'Generate token' at the bottom"
-echo "    9. Copy the token (starts with npm_...) — shown ONLY ONCE"
-echo ""
-open_url "https://www.npmjs.com/settings/karish911/tokens"
-echo ""
-read -rsp "  Paste npm token here (input hidden, then Enter): " NPM_TOKEN_INPUT
-echo ""
-if [ -z "$NPM_TOKEN_INPUT" ]; then
-  echo ""
-  echo "  ERROR: empty token. Aborting."
-  exit 1
+# ── Load existing secrets if present ─────────────────────────────────────────
+EXISTING_NPM=""
+EXISTING_VSCE=""
+if [ -f "$SECRETS_FILE" ]; then
+  # shellcheck disable=SC1090
+  set -a; source "$SECRETS_FILE"; set +a
+  EXISTING_NPM="${NPM_TOKEN:-}"
+  EXISTING_VSCE="${VSCE_PAT:-}"
 fi
-case "$NPM_TOKEN_INPUT" in
-  npm_*) ;;
-  *)
-    echo ""
-    echo "  WARN: token doesn't start with 'npm_' — that's the usual format."
-    echo "        Continuing anyway (maybe npm changed it)."
-    ;;
-esac
-echo "  ✓ npm token captured"
 
-# ── 2. Marketplace PAT ───────────────────────────────────────────────────────
+# ── Validators ───────────────────────────────────────────────────────────────
+# Returns 0 if the npm token can publish, 1 otherwise.
+validate_npm() {
+  local token="$1"
+  [ -z "$token" ] && return 1
+  # `npm whoami` with the token in env — uses ~/.npmrc which references ${NPM_TOKEN}
+  NPM_TOKEN="$token" npm whoami --registry=https://registry.npmjs.org/ >/dev/null 2>&1
+}
+
+# Returns 0 if vsce can publish (either via PAT in arg or via cached login).
+# If a token is passed, validates that. If empty, checks the cached credential.
+validate_vsce() {
+  local token="$1"
+  if [ -n "$token" ]; then
+    vsce verify-pat MeniHillel --pat "$token" >/dev/null 2>&1
+  else
+    # No token — check if vsce login is cached and works
+    vsce verify-pat MeniHillel >/dev/null 2>&1
+  fi
+}
+
+# ── Detect what needs attention ──────────────────────────────────────────────
 clear || true
 echo ""
 hr
-echo "  STEP 2 of 2 — VS Code Marketplace PAT"
+echo "  omni-notify-mcp — release auth check"
 hr
 echo ""
-echo "  This token publishes the VS Code extension to the marketplace."
-echo "  If you've already run 'vsce login MeniHillel' successfully, the"
-echo "  credential is cached locally and you can skip this step (just press"
-echo "  Enter)."
-echo ""
-echo "  URL (opening in your browser):"
-echo "    https://dev.azure.com/"
-echo ""
-echo "  Steps:"
-echo "    1. Sign in with menihillel@gmail.com (the Microsoft account that"
-echo "       owns the MeniHillel marketplace publisher)"
-echo "    2. You should land in your Azure DevOps org. If you see"
-echo "       'Create new organization', click it and accept defaults."
-echo "    3. Top-right corner: click your profile picture/initials"
-echo "    4. Click 'Personal access tokens'"
-echo "    5. Click '+ New Token'"
-echo "    6. Settings:"
-echo "       - Name: omni-notify-marketplace"
-echo "       - Organization: All accessible organizations  ← critical"
-echo "       - Expiration: 1 year (max)"
-echo "       - Scopes: Custom defined → expand 'Marketplace' → check 'Manage'"
-echo "    7. Click 'Create' → copy the token (shown ONLY ONCE)"
-echo ""
-open_url "https://dev.azure.com/"
-echo ""
-read -rsp "  Paste marketplace PAT here (or press Enter to skip): " VSCE_PAT_INPUT
-echo ""
-if [ -n "$VSCE_PAT_INPUT" ]; then
-  echo "  ✓ marketplace PAT captured"
+
+NPM_OK=0
+VSCE_OK=0
+
+echo -n "  Checking npm token... "
+if validate_npm "$EXISTING_NPM"; then
+  echo "✓ valid"
+  NPM_OK=1
 else
-  echo "  ⊘ marketplace PAT skipped — vsce login credential will be used"
+  if [ -n "$EXISTING_NPM" ]; then
+    echo "✗ INVALID (revoked, expired, or wrong scope)"
+  else
+    echo "✗ not set"
+  fi
+fi
+
+echo -n "  Checking marketplace credential... "
+if validate_vsce "$EXISTING_VSCE"; then
+  echo "✓ valid"
+  VSCE_OK=1
+else
+  if [ -n "$EXISTING_VSCE" ]; then
+    echo "✗ PAT INVALID — and no cached vsce login either"
+  else
+    echo "✗ no PAT and no cached vsce login"
+  fi
+fi
+
+echo ""
+
+# ── If everything's already good, exit ───────────────────────────────────────
+if [ $NPM_OK -eq 1 ] && [ $VSCE_OK -eq 1 ]; then
+  hr
+  echo "  ✓ All credentials valid — nothing to do."
+  hr
+  echo ""
+  echo "  Ship: bash ./release.sh"
+  echo ""
+  exit 0
+fi
+
+hr
+echo "  Will prompt only for what's missing/broken."
+hr
+read -rp "  Press Enter to continue..." _
+
+# ── npm token (if needed) ────────────────────────────────────────────────────
+NEW_NPM=""
+if [ $NPM_OK -eq 0 ]; then
+  clear || true
+  echo ""
+  hr
+  echo "  npm token"
+  hr
+  echo ""
+  echo "  URL (opening in your browser):"
+  echo "    https://www.npmjs.com/settings/karish911/tokens"
+  echo ""
+  echo "  Steps:"
+  echo "    1. Click 'Generate New Token' (top-right)"
+  echo "    2. Pick 'Granular Access Token'"
+  echo "    3. Token name: omni-notify-publish"
+  echo "    4. Expiration: 90 days (their max)"
+  echo "    5. Bypass 2FA: ✅ check it"
+  echo "    6. Permissions: Read and write"
+  echo "    7. Packages and scopes: pick 'All packages'  ← critical"
+  echo "       (scoping to a specific package often causes 404s)"
+  echo "    8. Generate token → copy (starts with npm_...)"
+  echo ""
+  open_url "https://www.npmjs.com/settings/karish911/tokens"
+  echo ""
+
+  # Loop until we get a valid one (or user gives up with Ctrl-C)
+  while :; do
+    read -rsp "  Paste npm token (input hidden, Enter to skip): " NEW_NPM
+    echo ""
+    if [ -z "$NEW_NPM" ]; then
+      echo "  ⊘ Skipped npm token — release will fail until fixed."
+      break
+    fi
+    echo -n "  Validating... "
+    if validate_npm "$NEW_NPM"; then
+      echo "✓ works"
+      break
+    else
+      echo "✗ rejected by registry. Check scope/permissions and try again."
+      echo "    (Or press Enter on empty to skip.)"
+    fi
+  done
+fi
+
+# ── Marketplace PAT (if needed) ──────────────────────────────────────────────
+NEW_VSCE=""
+SKIP_VSCE_SAVE=0
+if [ $VSCE_OK -eq 0 ]; then
+  clear || true
+  echo ""
+  hr
+  echo "  VS Code Marketplace credential"
+  hr
+  echo ""
+  echo "  Two ways to authenticate vsce:"
+  echo "    A. Cache login locally (no token in our file):"
+  echo "         vsce login MeniHillel"
+  echo "       Recommended — token stays in OS keychain."
+  echo ""
+  echo "    B. Paste a PAT here and we'll save it to the secrets file."
+  echo ""
+  echo "  Either way, get a PAT first:"
+  echo "    URL (opening): https://dev.azure.com/"
+  echo "    Avatar → Personal access tokens → New Token"
+  echo "    Org: All accessible orgs · Expiration: 1 year"
+  echo "    Scopes: Custom defined → Marketplace → Manage"
+  echo ""
+  open_url "https://dev.azure.com/"
+  echo ""
+  read -rsp "  Paste marketplace PAT (input hidden, Enter to skip): " NEW_VSCE
+  echo ""
+  if [ -z "$NEW_VSCE" ]; then
+    echo "  ⊘ Skipped — make sure 'vsce login MeniHillel' is set up separately."
+    SKIP_VSCE_SAVE=1
+  else
+    echo -n "  Validating... "
+    if validate_vsce "$NEW_VSCE"; then
+      echo "✓ works"
+    else
+      echo "✗ rejected by marketplace. Check scope (must be Marketplace > Manage)."
+      SKIP_VSCE_SAVE=1
+    fi
+  fi
 fi
 
 # ── Write the file ───────────────────────────────────────────────────────────
+# Preserve existing valid tokens; only overwrite what we got new.
+FINAL_NPM="${NEW_NPM:-$EXISTING_NPM}"
+FINAL_VSCE=""
+if [ $SKIP_VSCE_SAVE -eq 0 ] && [ -n "$NEW_VSCE" ]; then
+  FINAL_VSCE="$NEW_VSCE"
+elif [ $VSCE_OK -eq 1 ]; then
+  FINAL_VSCE="$EXISTING_VSCE"
+fi
+
 {
   echo "# Generated by setup-secrets.sh on $(date)"
-  echo "# Edit to update tokens, or re-run: bash ./setup-secrets.sh"
+  echo "# Re-run anytime to refresh — only invalid tokens get re-prompted."
   echo ""
-  echo "NPM_TOKEN=$NPM_TOKEN_INPUT"
-  if [ -n "$VSCE_PAT_INPUT" ]; then
-    echo "VSCE_PAT=$VSCE_PAT_INPUT"
+  if [ -n "$FINAL_NPM" ]; then
+    echo "NPM_TOKEN=$FINAL_NPM"
+  fi
+  if [ -n "$FINAL_VSCE" ]; then
+    echo "VSCE_PAT=$FINAL_VSCE"
   fi
 } > "$SECRETS_FILE"
 
@@ -140,5 +228,9 @@ hr
 echo "  ✓ DONE — wrote $SECRETS_FILE (chmod 600)"
 hr
 echo ""
-echo "  Now ship:  bash ./release.sh"
+[ -n "$FINAL_NPM" ]  && echo "  npm:         saved + validated"  || echo "  npm:         (not set — release will fail)"
+[ -n "$FINAL_VSCE" ] && echo "  marketplace: PAT saved + validated"
+[ -z "$FINAL_VSCE" ] && [ $VSCE_OK -eq 0 ] && echo "  marketplace: relying on 'vsce login MeniHillel' (verify it's set up)"
+echo ""
+echo "  Now ship: bash ./release.sh"
 echo ""

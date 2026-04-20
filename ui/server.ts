@@ -157,15 +157,15 @@ app.post("/api/config", (req, res) => {
 // node-notifier's `sound: true` works reliably, no fallback needed.
 app.post("/api/test/sound", (_req, res) => {
   if (process.platform === "win32") {
-    // Direct PowerShell beep — bypasses the notification subsystem entirely.
-    // Plays an 800Hz tone for 200ms through the system speakers. Cannot be
-    // muted by per-app notification settings.
+    // Use System.Media.SystemSounds.Asterisk — plays through the sound card
+    // (Windows notification sound), works on every machine. console::beep
+    // uses the PC speaker which modern hardware lacks.
     spawn("powershell", [
       "-NoProfile",
       "-Command",
-      "[console]::beep(880,180); Start-Sleep -Milliseconds 60; [console]::beep(660,180)",
+      "Add-Type -AssemblyName System.Windows.Forms; [System.Media.SystemSounds]::Asterisk.Play(); Start-Sleep -Milliseconds 600",
     ], { windowsHide: true, stdio: "ignore" });
-    res.json({ ok: true, message: "Beep sent (Windows console.beep)" });
+    res.json({ ok: true, message: "Sound played (System.Media)" });
     return;
   }
   notifier.notify(
@@ -184,7 +184,7 @@ app.post("/api/test/desktop", (_req, res) => {
   if (wantSound && process.platform === "win32") {
     spawn("powershell", [
       "-NoProfile", "-Command",
-      "[console]::beep(880,180); Start-Sleep -Milliseconds 60; [console]::beep(660,180)",
+      "Add-Type -AssemblyName System.Windows.Forms; [System.Media.SystemSounds]::Asterisk.Play(); Start-Sleep -Milliseconds 600",
     ], { windowsHide: true, stdio: "ignore" });
   }
   notifier.notify(
@@ -593,9 +593,13 @@ async function sendNotification(message: string, priority: "low" | "normal" | "h
       // Windows notification settings — fire a PowerShell beep alongside the
       // toast so the audible cue is reliable. macOS/Linux: trust the OS.
       if (wantSound && process.platform === "win32") {
+        // [console]::beep uses the PC speaker (motherboard buzzer), which
+        // modern laptops/desktops don't have — silent on most machines.
+        // SystemSounds.Asterisk plays through the actual sound card via
+        // the Windows notification sound, audible on every machine.
         spawn("powershell", [
           "-NoProfile", "-Command",
-          "[console]::beep(880,180); Start-Sleep -Milliseconds 60; [console]::beep(660,180)",
+          "Add-Type -AssemblyName System.Windows.Forms; [System.Media.SystemSounds]::Asterisk.Play(); Start-Sleep -Milliseconds 600",
         ], { windowsHide: true, stdio: "ignore" });
       }
       const soundOpt = wantSound && process.platform !== "win32";

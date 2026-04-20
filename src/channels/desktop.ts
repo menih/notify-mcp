@@ -10,7 +10,7 @@ export async function sendDesktop(config: DesktopConfig, message: string): Promi
   if (wantSound && process.platform === "win32") {
     spawn("powershell", [
       "-NoProfile", "-Command",
-      "[console]::beep(880,180); Start-Sleep -Milliseconds 60; [console]::beep(660,180)",
+      "Add-Type -AssemblyName System.Windows.Forms; [System.Media.SystemSounds]::Asterisk.Play(); Start-Sleep -Milliseconds 600",
     ], { windowsHide: true, stdio: "ignore" });
   }
   await new Promise<void>((resolve, reject) => {

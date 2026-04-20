@@ -104,6 +104,56 @@ elif [ -n "$SKIP_VSCE" ]; then
 fi
 
 echo ""
-echo "Done! Released v$NEW_VERSION"
-echo "  npm:         https://www.npmjs.com/package/omni-notify-mcp"
-echo "  marketplace: https://marketplace.visualstudio.com/items?itemName=MeniHillel.omni-notify-mcp"
+echo "================================================================================"
+echo "  Done! Released v$NEW_VERSION"
+echo "================================================================================"
+echo ""
+echo "  Live links:"
+echo "    npm:         https://www.npmjs.com/package/omni-notify-mcp"
+echo "    marketplace: https://marketplace.visualstudio.com/items?itemName=MeniHillel.omni-notify-mcp"
+echo "    github:      https://github.com/menih/omni-notify-mcp"
+echo ""
+echo "  (Marketplace takes ~2-5 min to reindex — refresh in a bit.)"
+echo ""
+echo "--------------------------------------------------------------------------------"
+echo "  Share-with-friends blurb (copy below):"
+echo "--------------------------------------------------------------------------------"
+cat <<EOF
+
+🔔 Just shipped omni-notify-mcp v$NEW_VERSION — an MCP server that lets AI agents
+(Claude, Cursor, VS Code Copilot) reach you on desktop, Telegram, SMS, or email.
+
+Two-way ask/reply, Do Not Disturb, idle gating with sound bypass, multi-session
+routing, real-time inbox over SSE, copy-paste setup for every MCP client.
+
+Install:   npx omni-notify-mcp
+VS Code:   search "Omni Notify" in extensions
+
+📦 https://www.npmjs.com/package/omni-notify-mcp
+🛒 https://marketplace.visualstudio.com/items?itemName=MeniHillel.omni-notify-mcp
+
+EOF
+echo "--------------------------------------------------------------------------------"
+
+# Try to copy the blurb to the clipboard automatically (cross-platform).
+BLURB=$(cat <<EOF
+🔔 Just shipped omni-notify-mcp v$NEW_VERSION — an MCP server that lets AI agents (Claude, Cursor, VS Code Copilot) reach you on desktop, Telegram, SMS, or email.
+
+Two-way ask/reply, Do Not Disturb, idle gating with sound bypass, multi-session routing, real-time inbox over SSE, copy-paste setup for every MCP client.
+
+Install:   npx omni-notify-mcp
+VS Code:   search "Omni Notify" in extensions
+
+📦 https://www.npmjs.com/package/omni-notify-mcp
+🛒 https://marketplace.visualstudio.com/items?itemName=MeniHillel.omni-notify-mcp
+EOF
+)
+
+if command -v clip >/dev/null 2>&1; then
+  printf '%s' "$BLURB" | clip 2>/dev/null && echo "  ✓ Blurb copied to clipboard."
+elif command -v pbcopy >/dev/null 2>&1; then
+  printf '%s' "$BLURB" | pbcopy 2>/dev/null && echo "  ✓ Blurb copied to clipboard."
+elif command -v xclip >/dev/null 2>&1; then
+  printf '%s' "$BLURB" | xclip -selection clipboard 2>/dev/null && echo "  ✓ Blurb copied to clipboard."
+fi
+echo ""

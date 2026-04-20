@@ -73,6 +73,7 @@ Six tools, all server-configured (the agent never names a channel):
 ## Features (handled by the npm package)
 
 - **Multi-channel fan-out**: desktop, Telegram, SMS, email — pick what you want
+- **Text-to-speech**: desktop notifs can be spoken out loud in a natural neural voice (off by default; toggle in the config UI)
 - **Two-way `ask`**: agent waits for your reply via Telegram thread or email link
 - **Real-time inbox** (SSE) for unsolicited user messages
 - **Multi-session tagging**: route a Telegram message to a specific agent with `@<tag>`

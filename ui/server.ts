@@ -13,6 +13,7 @@ import twilio from "twilio";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
+import { tmpdir } from "os";
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3737;
 const REDIRECT_URI = `http://localhost:${PORT}/auth/google/callback`;
@@ -175,6 +176,37 @@ app.post("/api/test/sound", (_req, res) => {
       else res.json({ ok: true, message: "System sound triggered" });
     }
   );
+});
+
+async function speakText(text: string, voice: string): Promise<void> {
+  const mod: any = await import("msedge-tts");
+  const { MsEdgeTTS, OUTPUT_FORMAT } = mod;
+  const tts = new MsEdgeTTS();
+  await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+  const { mkdtempSync } = await import("fs");
+  const outDir = mkdtempSync(join(tmpdir(), "notify-tts-"));
+  const { audioFilePath } = await tts.toFile(outDir, text);
+  if (process.platform === "win32") {
+    spawn("powershell", [
+      "-NoProfile", "-Command",
+      `Add-Type -AssemblyName presentationCore; $p = New-Object System.Windows.Media.MediaPlayer; $p.Open([uri]'${audioFilePath.replace(/\\/g, "\\\\")}'); $p.Play(); Start-Sleep -Seconds 10`,
+    ], { windowsHide: true, stdio: "ignore" });
+  } else if (process.platform === "darwin") {
+    spawn("afplay", [audioFilePath], { stdio: "ignore" });
+  } else {
+    spawn("aplay", [audioFilePath], { stdio: "ignore" });
+  }
+}
+
+app.post("/api/test/tts", async (_req, res) => {
+  try {
+    const cfg = loadConfig();
+    const voice = cfg.desktop?.ttsVoice ?? "en-US-AndrewMultilingualNeural";
+    await speakText("Notification from Claude. This is a voice test.", voice);
+    res.json({ ok: true, message: `TTS played (${voice})` });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 app.post("/api/test/desktop", (_req, res) => {
@@ -603,6 +635,11 @@ async function sendNotification(message: string, priority: "low" | "normal" | "h
         ], { windowsHide: true, stdio: "ignore" });
       }
       const soundOpt = wantSound && process.platform !== "win32";
+      if (cfg.desktop?.tts) {
+        const voice = cfg.desktop?.ttsVoice ?? "en-US-AndrewMultilingualNeural";
+        speakText(message, voice).catch((err) =>
+          log("→", "tts", `ERROR: ${err instanceof Error ? err.message : String(err)}`, client));
+      }
       await send("desktop", () => new Promise<void>((res, rej) =>
         notifier.notify({ title: "Claude Notify", message, sound: soundOpt },
           (err) => err ? rej(err) : res())));

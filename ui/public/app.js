@@ -44,6 +44,7 @@ function populateForm() {
   // Desktop
   $("desktop-enabled").checked = !!config.desktop?.enabled;
   $("desktop-sound").checked = config.desktop?.sound !== false; // default on
+  $("desktop-tts").checked = !!config.desktop?.tts; // default off
 
   // Email / Gmail
   const email = config.email ?? {};
@@ -154,6 +155,7 @@ function saveDesktop() {
     desktop: {
       enabled: $("desktop-enabled").checked,
       sound: $("desktop-sound").checked,
+      tts: $("desktop-tts").checked,
     },
   });
 }
@@ -395,6 +397,17 @@ async function testSound() {
     toast(json.message, "ok");
   } catch (e) {
     toast("Sound test failed: " + e, "error");
+  }
+}
+
+async function testTts() {
+  try {
+    const res = await fetch("/api/test/tts", { method: "POST" });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error);
+    toast(json.message, "ok");
+  } catch (e) {
+    toast("TTS test failed: " + e, "error");
   }
 }
 

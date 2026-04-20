@@ -613,39 +613,66 @@ function renderLogEntry(raw) {
   if (atBottom) panel.scrollTop = panel.scrollHeight;
 }
 
+function sessionStatus(lastSeen) {
+  const age = Date.now() - lastSeen;
+  if (age < 35_000) return "live";
+  if (age < 95_000) return "idle";
+  return "stale";
+}
+
+async function dismissSession(clientId) {
+  await fetch(`/api/sessions/${encodeURIComponent(clientId)}`, { method: "DELETE" });
+  refreshSessions();
+}
+
 async function refreshSessions() {
   try {
     const res = await fetch("/api/sessions");
     if (!res.ok) return;
     const { sessions } = await res.json();
     const bar = $("session-pills");
-    // Build a set of desired pills (keyed by clientId). Keep the "All" pill.
     const existing = new Map();
-    bar.querySelectorAll(".pill").forEach(p => existing.set(p.dataset.client || "", p));
+    bar.querySelectorAll(".pill[data-client]").forEach(p => {
+      if (p.dataset.client !== "") existing.set(p.dataset.client, p);
+    });
     const desired = new Set([""]);
     for (const s of sessions) desired.add(s.clientId);
-    // Remove pills for disconnected sessions.
+
+    // Remove pills for sessions the server no longer knows about.
     for (const [id, el] of existing) {
       if (!desired.has(id)) el.remove();
     }
-    // Add pills for new sessions.
+
+    // Add or update pills.
     for (const s of sessions) {
+      const status = sessionStatus(s.lastSeen);
+      const label = s.tag ? `@${s.tag}` : s.clientId;
+      const title = [s.clientName, s.host, `last seen ${Math.round((Date.now() - s.lastSeen) / 1000)}s ago`].filter(Boolean).join(" · ");
+
       if (!existing.has(s.clientId)) {
         const btn = document.createElement("button");
         btn.className = "pill";
         btn.dataset.client = s.clientId;
-        btn.textContent = s.tag ? `@${s.tag}` : s.clientId;
-        btn.title = [s.clientName, s.host].filter(Boolean).join(" · ");
         btn.onclick = () => selectLogFilter(s.clientId);
         bar.appendChild(btn);
+        existing.set(s.clientId, btn);
       }
+
+      const btn = existing.get(s.clientId);
+      btn.title = title;
+      btn.innerHTML =
+        `<span class="pill-dot pill-dot-${status}"></span>` +
+        `<span class="pill-label">${label}</span>` +
+        (status === "stale"
+          ? `<span class="pill-dismiss" title="Remove" onclick="event.stopPropagation();dismissSession('${s.clientId.replace(/'/g,"\\'")}')">×</span>`
+          : "");
     }
+
     // If the currently-selected client disconnected, fall back to "All".
     if (logFilterClient && !desired.has(logFilterClient)) {
       selectLogFilter("");
     } else {
-      // Re-sync active state (in case pills were re-added).
-      bar.querySelectorAll(".pill").forEach(p => {
+      bar.querySelectorAll(".pill[data-client]").forEach(p => {
         p.classList.toggle("pill-active", (p.dataset.client || "") === logFilterClient);
       });
     }

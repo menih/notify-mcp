@@ -231,6 +231,18 @@ main {
   border-color: var(--accent);
   color: #fff;
 }
+.pill { display: inline-flex; align-items: center; gap: 5px; }
+.pill-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+}
+.pill-dot-live  { background: #4ade80; }
+.pill-dot-idle  { background: #facc15; }
+.pill-dot-stale { background: #f87171; }
+.pill-dismiss {
+  margin-left: 1px; font-size: 13px; line-height: 1;
+  opacity: .6; cursor: pointer;
+}
+.pill-dismiss:hover { opacity: 1; }
 
 /* ── Cards ───────────────────────────────────────────────────────────────── */
 

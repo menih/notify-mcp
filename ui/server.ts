@@ -591,8 +591,20 @@ app.get("/api/sessions", (_req, res) => {
     clientVersion: s.clientVersion,
     host: s.host,
     connectedAt: s.connectedAt,
+    lastSeen: s.lastSeen,
   }));
   res.json({ sessions: list });
+});
+
+app.delete("/api/sessions/:clientId", (req, res) => {
+  const { clientId } = req.params;
+  const entry = Object.entries(sessions).find(([, m]) => m.clientId === clientId);
+  if (!entry) { res.status(404).json({ error: "not found" }); return; }
+  const [sessionId] = entry;
+  try { httpTransports[sessionId]?.close(); } catch { /* ignore */ }
+  delete httpTransports[sessionId];
+  delete sessions[sessionId];
+  res.json({ ok: true });
 });
 
 app.get("/api/logs", (req, res) => {
@@ -1621,11 +1633,12 @@ app.all("/mcp", async (req, res) => {
   const existingSessionId = req.headers["mcp-session-id"] as string | undefined;
 
   if (existingSessionId && httpTransports[existingSessionId]) {
-    await httpTransports[existingSessionId].handleRequest(req, res, req.body);
+    const transport = httpTransports[existingSessionId];
+    await transport.handleRequest(req, res, req.body);
     // Lazy-populate clientInfo after initialize lands on an existing session.
     const meta = sessions[existingSessionId];
     if (meta) meta.lastSeen = Date.now();
-    const mcpServer = (httpTransports[existingSessionId] as any).__mcpServer;
+    const mcpServer = (httpTransports[existingSessionId] as any)?.__mcpServer;
     if (meta && !meta.clientName && mcpServer?.getClientVersion) {
       try {
         const info = mcpServer.getClientVersion();
@@ -1668,9 +1681,17 @@ app.all("/mcp", async (req, res) => {
   const newSessionId = existingSessionId ?? randomUUID();
   const host = (req.socket.remoteAddress || "").replace(/^::ffff:/, "") || undefined;
   const port = req.socket.remotePort;
-  // Build a distinguishable client id: tag wins if set; otherwise use host+port
-  // so two untagged sessions from the same machine are still distinguishable.
+  // Pull clientInfo.name from the initialize body immediately so the pill shows
+  // a readable name from the start instead of waiting for lazy getClientVersion.
+  const initBody = Array.isArray(req.body)
+    ? req.body.find((m: any) => m?.method === "initialize")
+    : req.body;
+  const earlyClientName: string | undefined = initBody?.params?.clientInfo?.name;
+  // Build a distinguishable client id: tag wins if set; clientInfo.name next;
+  // otherwise use host+port so two untagged sessions from the same machine are
+  // still distinguishable.
   const clientId = sessionTag
+    ?? earlyClientName
     ?? (host && port ? `${host === "127.0.0.1" || host === "::1" ? "local" : host}:${port}` : `sess-${newSessionId.slice(0, 8)}`);
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => newSessionId });
   transport.onclose = () => {
@@ -1690,6 +1711,8 @@ app.all("/mcp", async (req, res) => {
     const now = Date.now();
     sessions[transport.sessionId] = {
       clientId, tag: sessionTag, host, connectedAt: now, lastSeen: now,
+      clientName: earlyClientName,
+      clientVersion: initBody?.params?.clientInfo?.version,
     };
   }
 });

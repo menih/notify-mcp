@@ -1,6 +1,6 @@
 {
   "name": "omni-notify-mcp",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "An MCP server that lets AI agents (Claude, Cursor, etc.) reach you on any channel — desktop, Telegram, SMS, email — with two-way ask/reply, real-time inbox push, Do Not Disturb, idle gating, multi-session routing, and a one-page web UI for setup. Zero config code; configure once, agents call notify/ask.",
   "main": "dist/index.js",
   "type": "module",

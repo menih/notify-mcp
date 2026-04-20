@@ -20,26 +20,30 @@ EXT_DIR="$NPM_DIR/vscode-extension"
 SECRETS_FILE="$HOME/.notify-mcp-secrets"
 
 # ── Load secrets ─────────────────────────────────────────────────────────────
+# Tokens persist in ~/.notify-mcp-secrets so you set them once and never type
+# them again. If the file doesn't exist, we run the interactive setup helper
+# automatically (hidden input, no echo, no shell history).
+if [ ! -f "$SECRETS_FILE" ]; then
+  echo "==> First run — no $SECRETS_FILE yet."
+  echo "    Launching setup (one-time, hidden input)..."
+  echo ""
+  bash "$NPM_DIR/setup-secrets.sh"
+  echo ""
+fi
+
 if [ -f "$SECRETS_FILE" ]; then
   # shellcheck disable=SC1090
   set -a; source "$SECRETS_FILE"; set +a
-else
-  echo "==> No $SECRETS_FILE found — will rely on env vars only"
-  echo "    To set up once-and-forget: cp .secrets.example ~/.notify-mcp-secrets"
 fi
 
 if [ -z "$NPM_TOKEN" ] && [ -z "$SKIP_NPM" ]; then
-  echo "ERROR: NPM_TOKEN not set. Either:"
-  echo "  - Add it to $SECRETS_FILE, or"
-  echo "  - Export it in your shell, or"
-  echo "  - Run with SKIP_NPM=1"
+  echo "ERROR: NPM_TOKEN still not set after loading $SECRETS_FILE."
+  echo "  Edit the file directly, or re-run: bash setup-secrets.sh"
   exit 1
 fi
 
-if [ -z "$VSCE_PAT" ] && [ -z "$SKIP_VSCE" ]; then
-  echo "==> WARN: VSCE_PAT not set — extension will be packaged but NOT uploaded"
-  echo "         Set it in $SECRETS_FILE to enable marketplace publish."
-fi
+# VSCE_PAT is optional — vsce login MeniHillel caches the credential, so
+# `vsce publish` works without --pat once you've logged in.
 
 cd "$NPM_DIR"
 

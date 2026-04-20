@@ -45,6 +45,8 @@ function populateForm() {
   $("desktop-enabled").checked = !!config.desktop?.enabled;
   $("desktop-sound").checked = config.desktop?.sound !== false; // default on
   $("desktop-tts").checked = !!config.desktop?.tts; // default off
+  updateTtsVoiceRow();
+  loadVoices().catch(() => {});
 
   // Email / Gmail
   const email = config.email ?? {};
@@ -151,13 +153,47 @@ function setBadge(channel, type, text) {
 // ── Save handlers ─────────────────────────────────────────────────────────
 
 function saveDesktop() {
+  updateTtsVoiceRow();
+  const ttsVoice = $("desktop-tts-voice").value || undefined;
   patch({
     desktop: {
       enabled: $("desktop-enabled").checked,
       sound: $("desktop-sound").checked,
       tts: $("desktop-tts").checked,
+      ttsVoice,
     },
   });
+}
+
+function updateTtsVoiceRow() {
+  const row = $("tts-voice-row");
+  row.style.display = $("desktop-tts").checked ? "" : "none";
+}
+
+let voicesLoaded = false;
+async function loadVoices() {
+  if (voicesLoaded) return;
+  const res = await fetch("/api/voices");
+  if (!res.ok) return;
+  const { voices } = await res.json();
+  const sel = $("desktop-tts-voice");
+  const current = config.desktop?.ttsVoice || "en-US-AndrewMultilingualNeural";
+  const byLocale = {};
+  for (const v of voices) (byLocale[v.locale] ??= []).push(v);
+  sel.innerHTML = "";
+  for (const locale of Object.keys(byLocale).sort()) {
+    const og = document.createElement("optgroup");
+    og.label = locale;
+    for (const v of byLocale[locale].sort((a, b) => a.shortName.localeCompare(b.shortName))) {
+      const opt = document.createElement("option");
+      opt.value = v.shortName;
+      opt.textContent = `${v.shortName.replace(locale + "-", "")} (${v.gender})`;
+      if (v.shortName === current) opt.selected = true;
+      og.appendChild(opt);
+    }
+    sel.appendChild(og);
+  }
+  voicesLoaded = true;
 }
 
 async function saveEmail() {
@@ -402,7 +438,12 @@ async function testSound() {
 
 async function testTts() {
   try {
-    const res = await fetch("/api/test/tts", { method: "POST" });
+    const voice = $("desktop-tts-voice").value || undefined;
+    const res = await fetch("/api/test/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ voice }),
+    });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error);
     toast(json.message, "ok");

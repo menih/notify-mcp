@@ -198,12 +198,35 @@ async function speakText(text: string, voice: string): Promise<void> {
   }
 }
 
-app.post("/api/test/tts", async (_req, res) => {
+app.post("/api/test/tts", async (req, res) => {
   try {
     const cfg = loadConfig();
-    const voice = cfg.desktop?.ttsVoice ?? "en-US-AndrewMultilingualNeural";
+    const voice =
+      (typeof req.body?.voice === "string" && req.body.voice) ||
+      cfg.desktop?.ttsVoice ||
+      "en-US-AndrewMultilingualNeural";
     await speakText("Notification from Claude. This is a voice test.", voice);
     res.json({ ok: true, message: `TTS played (${voice})` });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+let voiceCache: { ts: number; voices: any[] } | null = null;
+app.get("/api/voices", async (_req, res) => {
+  try {
+    if (!voiceCache || Date.now() - voiceCache.ts > 24 * 60 * 60 * 1000) {
+      const mod: any = await import("msedge-tts");
+      const tts = new mod.MsEdgeTTS();
+      const all = await tts.getVoices();
+      voiceCache = {
+        ts: Date.now(),
+        voices: all
+          .filter((v: any) => v.Locale.startsWith("en-") && v.ShortName.includes("Neural"))
+          .map((v: any) => ({ shortName: v.ShortName, gender: v.Gender, locale: v.Locale })),
+      };
+    }
+    res.json({ voices: voiceCache.voices });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }

@@ -86,7 +86,7 @@ Priority routing for `notify`:
 ## Features
 
 ### Channels
-- **Desktop** — native `node-notifier` (macOS/Windows/Linux). Per-channel **system-sound toggle** and optional **text-to-speech** (natural neural voice via `msedge-tts`, no API key).
+- **Desktop** — native `node-notifier` (macOS/Windows/Linux). Per-channel **system-sound toggle** and optional **text-to-speech** with a voice picker covering 30+ neural voices (US/UK/AU/CA/IN/IE/NZ/…) via `msedge-tts`, no API key.
 - **Telegram** — bidirectional. The bot **replies in-thread** to user messages and acknowledges every inbound message so the user knows it landed.
 - **SMS** — Twilio.
 - **Email** — Gmail App Password (one click) or any SMTP. `ask` over email sends a reply link the user clicks to answer.

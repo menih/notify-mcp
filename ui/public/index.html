@@ -63,6 +63,9 @@
             <span class="toggle-lbl">Speak notification</span>
             <button class="btn btn-sm btn-ghost" onclick="testTts()">Test voice</button>
           </div>
+          <div id="tts-voice-row" class="actions" style="margin-top:6px; display:none">
+            <select id="desktop-tts-voice" onchange="saveDesktop()" style="flex:1; min-width:0"></select>
+          </div>
           <span id="os-hint" class="os-tag hidden"></span>
         </div>
       </div>

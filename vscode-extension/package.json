@@ -2,7 +2,7 @@
   "name": "omni-notify-mcp",
   "displayName": "Omni Notify MCP",
   "description": "Multi-channel notifications for AI agents — desktop, Telegram, SMS, email — with two-way ask/reply, DND, and idle gating. Works with VS Code's native MCP support.",
-  "version": "1.1.7",
+  "version": "1.1.8",
   "publisher": "MeniHillel",
   "icon": "icon.png",
   "engines": {

@@ -53,6 +53,7 @@
     "@modelcontextprotocol/sdk": "^1.0.0",
     "express": "^4.19.2",
     "googleapis": "^144.0.0",
+    "msedge-tts": "^2.0.5",
     "node-notifier": "^10.0.1",
     "nodemailer": "^6.9.9",
     "open": "^10.1.0",

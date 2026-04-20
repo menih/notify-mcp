@@ -5,6 +5,8 @@ import { join } from "path";
 export interface DesktopConfig {
   enabled: boolean;
   sound?: boolean;
+  tts?: boolean;
+  ttsVoice?: string;
 }
 
 export interface TelegramConfig {

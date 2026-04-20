@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="icon.png" width="128" alt="omni-notify-mcp">
+  <img src="https://raw.githubusercontent.com/menih/omni-notify-mcp/main/vscode-extension/icon.png" width="128" alt="omni-notify-mcp">
 </p>
 
 <h1 align="center">Omni Notify MCP</h1>
@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="screenshots/main-ui.png" width="900" alt="Config UI — Delivery Channels + System Policies side by side">
+  <img src="https://raw.githubusercontent.com/menih/omni-notify-mcp/main/vscode-extension/screenshots/main-ui.png" width="900" alt="Config UI — Delivery Channels + System Policies side by side">
 </p>
 
 ---
@@ -54,7 +54,7 @@ Done. Agents in this workspace can now call `notify`, `ask`, `poll`, and the res
 The bundled help page has copy-paste snippets for Claude Code, Cursor, VS Code, Claude Desktop, Windsurf, Zed, and any generic MCP client. Open from the command palette: **Omni Notify: Setup Help**.
 
 <p align="center">
-  <img src="screenshots/help-page.png" width="800" alt="Help page — copy-paste snippets per client">
+  <img src="https://raw.githubusercontent.com/menih/omni-notify-mcp/main/vscode-extension/screenshots/help-page.png" width="800" alt="Help page — copy-paste snippets per client">
 </p>
 
 ## What the agent gets

@@ -27,11 +27,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/menih/omni-notify-mcp"
+    "url": "https://github.com/menih/notify-mcp"
   },
-  "homepage": "https://github.com/menih/omni-notify-mcp#readme",
+  "homepage": "https://github.com/menih/notify-mcp#readme",
   "bugs": {
-    "url": "https://github.com/menih/omni-notify-mcp/issues"
+    "url": "https://github.com/menih/notify-mcp/issues"
   },
   "main": "./extension.js",
   "activationEvents": [

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" width="128" height="128" alt="omni-notify-mcp">
+  <img src="https://raw.githubusercontent.com/menih/notify-mcp/main/assets/logo.svg" width="128" height="128" alt="omni-notify-mcp">
 </p>
 
 <h1 align="center">omni-notify-mcp</h1>
@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/screenshots/main-ui.png" width="900" alt="omni-notify-mcp config UI — channels and policies side by side, with live activity log">
+  <img src="https://raw.githubusercontent.com/menih/notify-mcp/main/assets/screenshots/main-ui.png" width="900" alt="omni-notify-mcp config UI — channels and policies side by side, with live activity log">
 </p>
 
 ---
@@ -115,7 +115,7 @@ Cross-platform idle detection: Windows (PowerShell + `GetLastInputInfo`), macOS 
 One page, dark theme, live activity log streaming over SSE, one-click test buttons per channel, secrets masked at rest. Plus a copy-paste help page that walks any AI client through registration in 30 seconds:
 
 <p align="center">
-  <img src="assets/screenshots/help-page.png" width="800" alt="Help page — copy-paste snippets for Claude Code, Cursor, VS Code, Claude Desktop, Windsurf, Zed">
+  <img src="https://raw.githubusercontent.com/menih/notify-mcp/main/assets/screenshots/help-page.png" width="800" alt="Help page — copy-paste snippets for Claude Code, Cursor, VS Code, Claude Desktop, Windsurf, Zed">
 </p>
 
 ### Activity log

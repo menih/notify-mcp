@@ -191,7 +191,7 @@ test("wait_for_inbox wakes up immediately when a matching message is injected", 
   assert.match(text, /hello from test/);
 });
 
-test("stale session id returns 404 (client must reinitialize)", async () => {
+test("stale session id on non-initialize request returns 404", async () => {
   const r = await fetch(`http://localhost:${port}/mcp`, {
     method: "POST",
     headers: {
@@ -202,6 +202,40 @@ test("stale session id returns 404 (client must reinitialize)", async () => {
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
   });
   assert.equal(r.status, 404);
+});
+
+test("stale session id on initialize is adopted (auto-reconnect after restart)", async () => {
+  // Simulates the claude-code#27142 flow: the server forgot the session, but
+  // the client still has the old id cached. An initialize with that id must
+  // succeed and the server must echo the same id back instead of 404-ing.
+  const staleId = "deadbeef-dead-beef-dead-beefdeadbeef";
+  const r = await fetch(`http://localhost:${port}/mcp`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json, text/event-stream",
+      "mcp-session-id": staleId,
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0", id: 1, method: "initialize",
+      params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "reconnect-test", version: "1" } },
+    }),
+  });
+  assert.equal(r.status, 200, `expected 200 on reinitialize, got ${r.status}`);
+  assert.equal(r.headers.get("mcp-session-id"), staleId, "server should echo the stale id back");
+
+  // Follow-up call on that same id should now work — session is live again.
+  const followup = await fetch(`http://localhost:${port}/mcp`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json, text/event-stream",
+      "mcp-session-id": staleId,
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
+  });
+  // notifications return 202 Accepted in the SDK; anything < 300 proves the session is alive.
+  assert.ok(followup.status < 300, `followup after adoption failed: ${followup.status}`);
 });
 
 test("stdio bridge initializes, advertises claude/channel, lists tools", { timeout: 20_000 }, async () => {

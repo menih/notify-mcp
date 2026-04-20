@@ -1638,12 +1638,21 @@ app.all("/mcp", async (req, res) => {
     return;
   }
 
-  // Spec-compliant: if the client presents a session ID we don't know about
-  // (server was restarted, or the transport was closed), return 404 so the
-  // client knows to re-initialize. The previous silent-new-session behavior
-  // left idle clients stuck with stale session bookkeeping until the VS Code
-  // window was manually reloaded.
-  if (existingSessionId) {
+  // Auto-reconnect path. If the client presents a session id we don't know
+  // about AND the request body is a fresh `initialize`, adopt the stale id
+  // instead of 404-ing. This covers the "server was restarted while Claude
+  // Code was open" case: clients that cache the session id (claude-code#27142)
+  // would otherwise stay ghost until the human manually reloaded the window.
+  // A non-initialize request with an unknown id still gets 404 — the client
+  // is expected to reinitialize in response.
+  const bodyIsInitialize =
+    req.method === "POST" &&
+    req.body &&
+    (Array.isArray(req.body)
+      ? req.body.some((m: any) => m?.method === "initialize")
+      : req.body.method === "initialize");
+
+  if (existingSessionId && !bodyIsInitialize) {
     res.status(404).json({
       jsonrpc: "2.0",
       error: { code: -32000, message: "Session not found — reinitialize" },
@@ -1654,7 +1663,9 @@ app.all("/mcp", async (req, res) => {
 
   const rawTag = typeof req.query.tag === "string" ? req.query.tag : undefined;
   const sessionTag = rawTag?.toLowerCase().replace(/[^a-z0-9_-]/g, "") || undefined;
-  const newSessionId = randomUUID();
+  // If the client brought a stale id on an initialize, reuse it so the client
+  // never has to swap ids. Otherwise mint a fresh one.
+  const newSessionId = existingSessionId ?? randomUUID();
   const host = (req.socket.remoteAddress || "").replace(/^::ffff:/, "") || undefined;
   const port = req.socket.remotePort;
   // Build a distinguishable client id: tag wins if set; otherwise use host+port

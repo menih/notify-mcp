@@ -1026,6 +1026,51 @@ BEHAVIORAL RULES for every client that connects:
 6. The 'get_idle_*' and 'get_dnd_status' tools are informational. You can
    inspect them if you want to explain a delivery decision, but they are NOT
    required pre-flights — the server gates server-side.
+
+7. If your tool call fails with "MCP server not connected" / "transport
+   closed" / similar — the SERVER IS ALMOST CERTAINLY FINE. Other clients are
+   connected to the same server right now. Only YOUR client's transport
+   broke (commonly: stdio child process died, or HTTP client gave up after a
+   transient slow response at startup). DO NOT tell the user "notify is down"
+   without first probing the server directly.
+
+   Probe before declaring the server dead:
+     curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3737/mcp
+   - 406 (Not Acceptable) = server is healthy, doing MCP protocol
+     negotiation. Your client is the broken party. Use the bypass below.
+   - Connection refused / timeout = server is genuinely down. Tell the user.
+
+   HTTP-transport bypass when your MCP client is broken (works from any
+   shell that has curl). Three calls, stateful — the session id from step 1
+   must be passed in mcp-session-id on every subsequent call:
+
+     # 1) initialize and capture session id from response headers
+     SID=$(curl -s -i -X POST http://localhost:3737/mcp \
+       -H "Content-Type: application/json" \
+       -H "Accept: application/json, text/event-stream" \
+       -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"curl-bridge","version":"1.0"}}}' \
+       | grep -i "^mcp-session-id:" | awk '{print $2}' | tr -d '\r')
+
+     # 2) ack initialized (no response body, fire-and-forget)
+     curl -s -X POST http://localhost:3737/mcp \
+       -H "Content-Type: application/json" \
+       -H "Accept: application/json, text/event-stream" \
+       -H "mcp-session-id: $SID" \
+       -d '{"jsonrpc":"2.0","method":"notifications/initialized"}' >/dev/null
+
+     # 3) call any tool — successful response includes "Sent via: <channel>"
+     curl -s -X POST http://localhost:3737/mcp \
+       -H "Content-Type: application/json" \
+       -H "Accept: application/json, text/event-stream" \
+       -H "mcp-session-id: $SID" \
+       -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"notify","arguments":{"message":"YOUR MESSAGE","priority":"normal"}}}'
+
+   Same pattern works for 'ask', 'poll', 'get_idle_seconds', etc. — change
+   the "name" and "arguments" in step 3. Reuse the same $SID for all calls
+   in one bypass session.
+
+   Bottom line: rule #1 still applies. If you owe the user a notify and your
+   MCP client is broken, you owe them the bypass — not an excuse.
 `.trim();
 
 function createMcpServer(clientId: string, sessionTag?: string) {

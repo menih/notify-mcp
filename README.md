@@ -13,8 +13,13 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/omni-notify-mcp"><img src="https://img.shields.io/npm/v/omni-notify-mcp.svg" alt="npm"></a>
-  <img src="https://img.shields.io/badge/license-MIT-7c6dfa.svg" alt="MIT license">
-  <img src="https://img.shields.io/badge/MCP-compatible-3b82f6.svg" alt="MCP compatible">
+  <a href="https://marketplace.visualstudio.com/items?itemName=MeniHillel.omni-notify-mcp"><img src="https://img.shields.io/visual-studio-marketplace/v/MeniHillel.omni-notify-mcp?label=marketplace" alt="VS Code Marketplace"></a>
+  <img src="https://img.shields.io/badge/license-MIT-4ea3ff.svg" alt="MIT license">
+  <img src="https://img.shields.io/badge/MCP-compatible-4ea3ff.svg" alt="MCP compatible">
+</p>
+
+<p align="center">
+  <img src="assets/screenshots/main-ui.png" width="900" alt="omni-notify-mcp config UI — channels and policies side by side, with live activity log">
 </p>
 
 ---
@@ -107,7 +112,11 @@ The server publishes a policy `{ enabled, thresholdSeconds }`. Agents are **inst
 Cross-platform idle detection: Windows (PowerShell + `GetLastInputInfo`), macOS (`ioreg`), Linux (`xprintidle`).
 
 ### Web config UI
-One page, dark theme, live activity log streaming over SSE, one-click test buttons per channel, secrets masked at rest.
+One page, dark theme, live activity log streaming over SSE, one-click test buttons per channel, secrets masked at rest. Plus a copy-paste help page that walks any AI client through registration in 30 seconds:
+
+<p align="center">
+  <img src="assets/screenshots/help-page.png" width="800" alt="Help page — copy-paste snippets for Claude Code, Cursor, VS Code, Claude Desktop, Windsurf, Zed">
+</p>
 
 ### Activity log
 Every notify, ask, reply, and inbox event is logged with timestamp, direction (`→` `←` `·`), channel, and (color-coded) client/session id. Visible live in the UI; last 500 entries replayed on connect.

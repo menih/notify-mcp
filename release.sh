@@ -74,22 +74,28 @@ fi
 # ── VS Code extension publish ────────────────────────────────────────────────
 if [ -z "$SKIP_VSCE" ] && [ -d "$EXT_DIR" ]; then
   echo "==> Syncing extension version to $NEW_VERSION..."
+  # Copy the LICENSE into the extension dir so the .vsix includes it (vsce
+  # warns when missing). Done before vsce reads package.json.
+  cp -f "$NPM_DIR/LICENSE" "$EXT_DIR/LICENSE" 2>/dev/null || true
+
   cd "$EXT_DIR"
-  node -e "
-    const fs=require('fs');
-    const p=JSON.parse(fs.readFileSync('package.json','utf8'));
-    p.version='$NEW_VERSION';
-    fs.writeFileSync('package.json', JSON.stringify(p,null,2)+'\n');
-  "
+  # Bump extension package.json version to match. Use a tempfile to avoid
+  # the bash/Git-Bash quoting confusion that broke the previous heredoc.
+  NEW_VER="$NEW_VERSION" node <<'EOF'
+const fs = require('fs');
+const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+p.version = process.env.NEW_VER;
+fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
+EOF
   rm -f *.vsix
 
   echo "==> Publishing extension to VS Code marketplace..."
+  # `--no-update-package-json` keeps vsce from auto-bumping again on top of
+  # our explicit version. `--skip-license` not used — we ship a real LICENSE.
   if [ -n "$VSCE_PAT" ]; then
-    # Explicit PAT in env — use it
-    vsce publish --pat "$VSCE_PAT"
+    vsce publish --pat "$VSCE_PAT" --no-update-package-json "$NEW_VERSION"
   else
-    # Use vsce's stored credential (set via `vsce login MeniHillel`)
-    vsce publish
+    vsce publish --no-update-package-json "$NEW_VERSION"
   fi
   echo "    OK marketplace: MeniHillel.omni-notify-mcp@$NEW_VERSION"
   cd "$NPM_DIR"

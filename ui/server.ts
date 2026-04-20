@@ -589,6 +589,7 @@ app.get("/api/sessions", (_req, res) => {
     tag: s.tag,
     clientName: s.clientName,
     clientVersion: s.clientVersion,
+    workspaceName: s.workspaceName,
     host: s.host,
     connectedAt: s.connectedAt,
     lastSeen: s.lastSeen,
@@ -1328,9 +1329,11 @@ BEHAVIORAL RULES for every client that connects:
 `.trim();
 
 function createMcpServer(clientId: string, sessionTag?: string) {
+  const identity = sessionTag ? `@${sessionTag}` : clientId;
+  const identityLine = `\nYOUR SESSION IDENTITY: "${identity}" — use this as your prefix in all notify replies (e.g. "[${identity}] done with build").\n`;
   const server = new McpServer(
     { name: "notify-mcp", version: "1.0.0" },
-    { instructions: MCP_INSTRUCTIONS }
+    { instructions: identityLine + MCP_INSTRUCTIONS }
   );
 
   server.tool(
@@ -1545,10 +1548,11 @@ function createMcpServer(clientId: string, sessionTag?: string) {
 const httpTransports: Record<string, StreamableHTTPServerTransport> = {};
 
 interface SessionMeta {
-  clientId: string;      // display name: tag or sess-xxxx
+  clientId: string;      // display name: tag or workspace name or sess-xxxx
   tag?: string;          // user-supplied session tag from ?tag=
   clientName?: string;   // MCP clientInfo.name (e.g. "claude-code")
   clientVersion?: string;
+  workspaceName?: string; // workspace folder name (e.g. "AlphaWave")
   host?: string;         // remote address of the client
   connectedAt: number;
   lastSeen: number;      // last time we saw any request from this session
@@ -1681,18 +1685,30 @@ app.all("/mcp", async (req, res) => {
   const newSessionId = existingSessionId ?? randomUUID();
   const host = (req.socket.remoteAddress || "").replace(/^::ffff:/, "") || undefined;
   const port = req.socket.remotePort;
-  // Pull clientInfo.name from the initialize body immediately so the pill shows
-  // a readable name from the start instead of waiting for lazy getClientVersion.
+  // Pull clientInfo and workspace from the initialize body immediately so the
+  // pill shows a readable name from the start.
   const initBody = Array.isArray(req.body)
     ? req.body.find((m: any) => m?.method === "initialize")
     : req.body;
   const earlyClientName: string | undefined = initBody?.params?.clientInfo?.name;
-  // Build a distinguishable client id: tag wins if set; clientInfo.name next;
-  // otherwise use host+port so two untagged sessions from the same machine are
-  // still distinguishable.
-  const clientId = sessionTag
+  // Prefer the workspace folder name (e.g. "AlphaWave", "notify-mcp-src") over
+  // the generic client name ("claude-code"). workspaceFolders[0].name is set by
+  // Claude Code and Cursor; rootUri is the fallback.
+  const workspaceFolders: any[] | undefined = initBody?.params?.workspaceFolders;
+  const rootUri: string | undefined = initBody?.params?.rootUri ?? initBody?.params?.root_uri;
+  const workspaceName: string | undefined =
+    workspaceFolders?.[0]?.name ||
+    (rootUri ? rootUri.replace(/\\/g, "/").split("/").filter(Boolean).pop() : undefined);
+  // Build a distinguishable client id: tag wins if set; workspace name next;
+  // then clientInfo.name; otherwise use host+port. If the base id is already
+  // taken, append -2, -3, … so two windows on the same project still show up.
+  const baseId = sessionTag
+    ?? workspaceName
     ?? earlyClientName
     ?? (host && port ? `${host === "127.0.0.1" || host === "::1" ? "local" : host}:${port}` : `sess-${newSessionId.slice(0, 8)}`);
+  const takenIds = new Set(Object.values(sessions).map(s => s.clientId));
+  let clientId = baseId;
+  for (let n = 2; takenIds.has(clientId); n++) clientId = `${baseId}-${n}`;
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => newSessionId });
   transport.onclose = () => {
     if (transport.sessionId) {
@@ -1713,6 +1729,7 @@ app.all("/mcp", async (req, res) => {
       clientId, tag: sessionTag, host, connectedAt: now, lastSeen: now,
       clientName: earlyClientName,
       clientVersion: initBody?.params?.clientInfo?.version,
+      workspaceName,
     };
   }
 });

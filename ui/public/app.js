@@ -647,7 +647,7 @@ async function refreshSessions() {
     for (const s of sessions) {
       const status = sessionStatus(s.lastSeen);
       const label = s.tag ? `@${s.tag}` : s.clientId;
-      const title = [s.clientName, s.host, `last seen ${Math.round((Date.now() - s.lastSeen) / 1000)}s ago`].filter(Boolean).join(" · ");
+      const title = [s.workspaceName ?? s.clientName, s.host, `last seen ${Math.round((Date.now() - s.lastSeen) / 1000)}s ago`].filter(Boolean).join(" · ");
 
       if (!existing.has(s.clientId)) {
         const btn = document.createElement("button");

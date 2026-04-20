@@ -1634,6 +1634,7 @@ function sessionDisplay(s: SessionMeta): string {
 }
 
 app.all("/mcp", async (req, res) => {
+  console.log("[debug-url]", req.method, req.url, "query:", JSON.stringify(req.query), "ua:", req.headers["user-agent"]);
   const existingSessionId = req.headers["mcp-session-id"] as string | undefined;
 
   if (existingSessionId && httpTransports[existingSessionId]) {

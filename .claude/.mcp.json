@@ -1,12 +1,8 @@
 {
   "mcpServers": {
     "notify": {
-      "type": "stdio",
-      "command": "C:\\Program Files\\nodejs\\node.exe",
-      "args": ["C:\\Users\\menih\\notify-mcp-src\\dist\\index.js"],
-      "env": {
-        "NOTIFY_MCP_TAG": "notify"
-      }
+      "type": "sse",
+      "url": "http://localhost:3737/mcp?tag=notify"
     }
   }
 }

@@ -8,3 +8,4 @@ package-lock.json
 .notify-mcp-secrets
 tokens.txt
 *.vsix
+vscode-extension/package.json

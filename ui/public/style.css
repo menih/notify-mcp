@@ -264,10 +264,14 @@ main {
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  border-bottom: 2px solid #4a4a5a;
   gap: 8px;
   flex-shrink: 0;
+  cursor: pointer;
+  user-select: none;
+  transition: background .1s;
 }
+.card-hd:hover { background: rgba(255,255,255,0.03); }
+.card.expanded .card-hd { border-bottom: 2px solid #4a4a5a; }
 .ch-meta {
   display: flex;
   align-items: center;
@@ -275,13 +279,23 @@ main {
 }
 .ch-name { font-size: 14px; font-weight: 600; }
 
+.card-chevron {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--text-3);
+  transition: transform .2s;
+}
+.card.expanded .card-chevron { transform: rotate(180deg); }
+
 .card-body {
   padding: 12px 14px;
-  display: flex;
+  display: none;
   flex-direction: column;
   gap: 10px;
   flex: 1;
 }
+.card.expanded .card-body { display: flex; }
 
 /* ── Channel icons ───────────────────────────────────────────────────────── */
 

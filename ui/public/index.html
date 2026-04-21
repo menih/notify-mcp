@@ -29,7 +29,7 @@
 
       <!-- ── Desktop ───────────────────────────────────────────────── -->
       <div class="card" id="card-desktop">
-        <div class="card-hd">
+        <div class="card-hd" onclick="toggleCard('desktop')">
           <div class="ch-meta">
             <div class="channel-icon desktop-icon">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
@@ -37,6 +37,7 @@
             <span class="ch-name">Desktop</span>
           </div>
           <span class="badge badge-idle" id="badge-desktop">–</span>
+          <svg class="card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
         <div class="card-body">
           <div class="actions">
@@ -73,7 +74,7 @@
 
       <!-- ── Email ─────────────────────────────────────────────────── -->
       <div class="card" id="card-email">
-        <div class="card-hd">
+        <div class="card-hd" onclick="toggleCard('email')">
           <div class="ch-meta">
             <div class="channel-icon gmail-icon">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
@@ -81,6 +82,7 @@
             <span class="ch-name">Email</span><span class="tag">Gmail</span>
           </div>
           <span class="badge badge-idle" id="badge-email">Not configured</span>
+          <svg class="card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
         <div class="card-body">
           <!-- Connected -->
@@ -122,7 +124,7 @@
 
       <!-- ── Telegram ──────────────────────────────────────────────── -->
       <div class="card" id="card-telegram">
-        <div class="card-hd">
+        <div class="card-hd" onclick="toggleCard('telegram')">
           <div class="ch-meta">
             <div class="channel-icon telegram-icon">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
@@ -130,6 +132,7 @@
             <span class="ch-name">Telegram</span><span class="tag">Bot API</span>
           </div>
           <span class="badge badge-idle" id="badge-telegram">Not configured</span>
+          <svg class="card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
         <div class="card-body">
           <div class="actions">
@@ -163,7 +166,7 @@
 
       <!-- ── SMS ───────────────────────────────────────────────────── -->
       <div class="card" id="card-sms">
-        <div class="card-hd">
+        <div class="card-hd" onclick="toggleCard('sms')">
           <div class="ch-meta">
             <div class="channel-icon sms-icon">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
@@ -171,6 +174,7 @@
             <span class="ch-name">SMS</span><span class="tag">Twilio</span>
           </div>
           <span class="badge badge-idle" id="badge-sms">Not configured</span>
+          <svg class="card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
         <div class="card-body">
           <div class="actions">
@@ -201,7 +205,7 @@
 
       <!-- ── ntfy ─────────────────────────────────────────────────── -->
       <div class="card" id="card-ntfy">
-        <div class="card-hd">
+        <div class="card-hd" onclick="toggleCard('ntfy')">
           <div class="ch-meta">
             <div class="channel-icon ntfy-icon">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
@@ -209,6 +213,7 @@
             <span class="ch-name">ntfy</span><span class="tag">Push</span>
           </div>
           <span class="badge badge-idle" id="badge-ntfy">Not configured</span>
+          <svg class="card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
         <div class="card-body">
           <div class="actions">
@@ -237,7 +242,7 @@
 
       <!-- ── Discord ───────────────────────────────────────────────── -->
       <div class="card" id="card-discord">
-        <div class="card-hd">
+        <div class="card-hd" onclick="toggleCard('discord')">
           <div class="ch-meta">
             <div class="channel-icon discord-icon">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><path d="M7.5 7.5c1-.5 2.5-.5 4.5-.5s3.5 0 4.5.5M7.5 16.5c1 .5 2.5.5 4.5.5s3.5 0 4.5-.5"/><path d="M3 3l4.5 1.5M21 3l-4.5 1.5M3 21l4.5-1.5M21 21l-4.5-1.5"/><path d="M3 3c0 9 0 12 9 15 9-3 9-6 9-15"/></svg>
@@ -245,6 +250,7 @@
             <span class="ch-name">Discord</span><span class="tag">Webhook</span>
           </div>
           <span class="badge badge-idle" id="badge-discord">Not configured</span>
+          <svg class="card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
         <div class="card-body">
           <div class="actions">
@@ -270,7 +276,7 @@
 
       <!-- ── Slack ─────────────────────────────────────────────────── -->
       <div class="card" id="card-slack">
-        <div class="card-hd">
+        <div class="card-hd" onclick="toggleCard('slack')">
           <div class="ch-meta">
             <div class="channel-icon slack-icon">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 10c-.83 0-1.5-.67-1.5-1.5v-5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5z"/><path d="M20.5 10H19V8.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/><path d="M9.5 14c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5S8 21.33 8 20.5v-5c0-.83.67-1.5 1.5-1.5z"/><path d="M3.5 14H5v1.5c0 .83-.67 1.5-1.5 1.5S2 16.33 2 15.5 2.67 14 3.5 14z"/><path d="M14 14.5c0-.83.67-1.5 1.5-1.5h5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-5c-.83 0-1.5-.67-1.5-1.5z"/><path d="M15.5 19H14v1.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5-.67-1.5-1.5-1.5z"/><path d="M10 9.5C10 8.67 9.33 8 8.5 8h-5C2.67 8 2 8.67 2 9.5S2.67 11 3.5 11h5c.83 0 1.5-.67 1.5-1.5z"/><path d="M8.5 5H10V3.5C10 2.67 9.33 2 8.5 2S7 2.67 7 3.5 7.67 5 8.5 5z"/></svg>
@@ -278,6 +284,7 @@
             <span class="ch-name">Slack</span><span class="tag">Webhook</span>
           </div>
           <span class="badge badge-idle" id="badge-slack">Not configured</span>
+          <svg class="card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
         <div class="card-body">
           <div class="actions">
@@ -302,7 +309,7 @@
 
       <!-- ── Teams ─────────────────────────────────────────────────── -->
       <div class="card" id="card-teams">
-        <div class="card-hd">
+        <div class="card-hd" onclick="toggleCard('teams')">
           <div class="ch-meta">
             <div class="channel-icon teams-icon">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -310,6 +317,7 @@
             <span class="ch-name">Teams</span><span class="tag">Webhook</span>
           </div>
           <span class="badge badge-idle" id="badge-teams">Not configured</span>
+          <svg class="card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
         <div class="card-body">
           <div class="actions">
@@ -344,7 +352,7 @@
 
       <!-- ── Do Not Disturb ────────────────────────────────────────── -->
       <div class="card" id="card-dnd">
-        <div class="card-hd">
+        <div class="card-hd" onclick="toggleCard('dnd')">
           <div class="ch-meta">
             <div class="channel-icon" style="background:#3b2f12;color:#f59e0b">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/></svg>
@@ -352,6 +360,7 @@
             <span class="ch-name">Do Not Disturb</span>
           </div>
           <span class="badge badge-idle" id="badge-dnd">–</span>
+          <svg class="card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
         <div class="card-body">
           <div class="actions">
@@ -391,7 +400,7 @@
 
       <!-- ── Idle gating ───────────────────────────────────────────── -->
       <div class="card" id="card-idle">
-        <div class="card-hd">
+        <div class="card-hd" onclick="toggleCard('idle')">
           <div class="ch-meta">
             <div class="channel-icon" style="background:#12293b;color:#3b82f6">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -399,6 +408,7 @@
             <span class="ch-name">Idle gating</span>
           </div>
           <span class="badge badge-idle" id="badge-idle">–</span>
+          <svg class="card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
         <div class="card-body">
           <div class="actions">

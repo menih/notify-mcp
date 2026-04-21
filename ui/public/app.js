@@ -3,6 +3,13 @@
 let config = {};
 const dirty = new Set();
 
+// ── Card collapse/expand ──────────────────────────────────────────────────
+
+function toggleCard(id) {
+  const card = document.getElementById('card-' + id);
+  if (card) card.classList.toggle('expanded');
+}
+
 // ── Bootstrap ─────────────────────────────────────────────────────────────
 
 async function init() {

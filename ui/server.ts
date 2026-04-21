@@ -171,52 +171,76 @@ function ntfyFanout(topic: string, message: string, title: string, priority: num
   }
 }
 
-// SSE subscribe — ntfy app connects here
-app.get("/ntfy/:topic/sse", (req, res) => {
-  const { topic } = req.params;
+function handleNtfySse(req: import("express").Request, res: import("express").Response): void {
+  const topic = (req.params.topic as string);
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
   res.write(`: connected to omni-notify-mcp ntfy\n\n`);
-
   const sub: NtfySubscriber = { res, topic };
   if (!ntfySubscribers.has(topic)) ntfySubscribers.set(topic, new Set());
   ntfySubscribers.get(topic)!.add(sub);
-
   const keepalive = setInterval(() => { try { res.write(": keepalive\n\n"); } catch { clearInterval(keepalive); } }, 30_000);
+  req.on("close", () => { clearInterval(keepalive); ntfySubscribers.get(topic)?.delete(sub); });
+}
 
-  req.on("close", () => {
-    clearInterval(keepalive);
-    ntfySubscribers.get(topic)?.delete(sub);
-  });
-});
-
-// Also support ntfy's JSON stream endpoint
-app.get("/ntfy/:topic/json", (req, res) => {
-  const { topic } = req.params;
+function handleNtfyJson(req: import("express").Request, res: import("express").Response): void {
+  const topic = (req.params.topic as string);
   res.setHeader("Content-Type", "application/x-ndjson");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
-
   const sub: NtfySubscriber = { res, topic };
   if (!ntfySubscribers.has(topic)) ntfySubscribers.set(topic, new Set());
   ntfySubscribers.get(topic)!.add(sub);
-
   const keepalive = setInterval(() => {
     try { res.write(JSON.stringify({ event: "keepalive", time: Math.floor(Date.now() / 1000) }) + "\n"); }
     catch { clearInterval(keepalive); }
   }, 30_000);
+  req.on("close", () => { clearInterval(keepalive); ntfySubscribers.get(topic)?.delete(sub); });
+}
 
-  req.on("close", () => {
-    clearInterval(keepalive);
-    ntfySubscribers.get(topic)?.delete(sub);
-  });
+// ntfy app hits /:topic/sse or /:topic/json (no /ntfy/ prefix)
+app.get("/:topic/sse",  (req, res) => {
+  if (["api", "auth", "mcp", "assets", "ntfy"].includes(req.params.topic)) { res.status(404).end(); return; }
+  handleNtfySse(req, res);
+});
+app.get("/:topic/json", (req, res) => {
+  if (["api", "auth", "mcp", "assets", "ntfy"].includes(req.params.topic)) { res.status(404).end(); return; }
+  handleNtfyJson(req, res);
 });
 
-// Publish endpoint — ntfy protocol POST
+// Also with /ntfy/ prefix for internal use
+app.get("/ntfy/:topic/sse",  (req, res) => handleNtfySse(req, res));
+app.get("/ntfy/:topic/json", (req, res) => handleNtfyJson(req, res));
+
+// Publish endpoint — ntfy protocol POST (with and without /ntfy/ prefix)
+app.put("/:topic", express.text({ type: "*/*" }), (req, res, next) => {
+  if (["api", "auth", "mcp", "assets", "ntfy"].includes(req.params.topic)) { next(); return; }
+  handleNtfyPublish(req, res);
+});
+app.post("/:topic", express.text({ type: "*/*" }), (req, res, next) => {
+  if (["api", "auth", "mcp", "assets", "ntfy"].includes(req.params.topic)) { next(); return; }
+  handleNtfyPublish(req, res);
+});
+app.get("/:topic/subscribers", (req, res) => {
+  if (["api", "auth", "mcp", "assets", "ntfy"].includes(req.params.topic)) { res.status(404).end(); return; }
+  const count = ntfySubscribers.get(req.params.topic)?.size ?? 0;
+  res.json({ topic: req.params.topic, subscribers: count });
+});
+
+function handleNtfyPublish(req: import("express").Request, res: import("express").Response): void {
+  const topic = req.params.topic as string;
+  const message = typeof req.body === "string" ? req.body : "";
+  const title = decodeURIComponent((req.headers["title"] || req.headers["x-title"] || "Claude Notify") as string);
+  const priority = parseInt((req.headers["priority"] || req.headers["x-priority"] || "3") as string) || 3;
+  const tags = (req.headers["tags"] || req.headers["x-tags"] || "") as string;
+  ntfyFanout(topic, message, title, priority, tags);
+  res.json({ id: String(Date.now()), time: Math.floor(Date.now() / 1000), event: "message", topic, title, message, priority });
+}
+
 app.put("/ntfy/:topic", express.text({ type: "*/*" }), (req, res) => {
   const { topic } = req.params;
   const message = typeof req.body === "string" ? req.body : "";

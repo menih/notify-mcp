@@ -15,9 +15,10 @@ export async function sendNtfy(
 ): Promise<void> {
   if (!config.enabled) return;
   const base = (config.serverUrl ?? "https://ntfy.sh").replace(/\/$/, "");
+  const safeTitle = encodeURIComponent(title);
   const headers: Record<string, string> = {
-    "Content-Type": "text/plain",
-    "Title": title,
+    "Content-Type": "text/plain; charset=utf-8",
+    "Title": safeTitle,
     "Priority": String(PRIORITY_MAP[priority] ?? 3),
     "Tags": priority === "high" ? "rotating_light" : "bell",
   };

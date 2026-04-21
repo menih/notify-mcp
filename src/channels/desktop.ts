@@ -42,7 +42,7 @@ export async function speak(text: string, voice: string = DEFAULT_TTS_VOICE): Pr
   if (process.platform === "win32") {
     spawn("powershell", [
       "-NoProfile", "-Command",
-      `Add-Type -AssemblyName presentationCore; $p = New-Object System.Windows.Media.MediaPlayer; $p.Open([uri]'${audioFilePath.replace(/\\/g, "\\\\")}'); $p.Play(); Start-Sleep -Seconds 10`,
+      `Add-Type -AssemblyName presentationCore; $p = New-Object System.Windows.Media.MediaPlayer; $done = $false; Register-ObjectEvent $p MediaEnded -Action { $script:done = $true } | Out-Null; $p.Open([uri]'${audioFilePath.replace(/\\/g, "\\\\")}'); $p.Play(); while (-not $done) { Start-Sleep -Milliseconds 200 }`,
     ], { windowsHide: true, stdio: "ignore" });
   } else if (process.platform === "darwin") {
     spawn("afplay", [audioFilePath], { stdio: "ignore" });

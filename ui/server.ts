@@ -190,7 +190,7 @@ async function speakText(text: string, voice: string): Promise<void> {
   if (process.platform === "win32") {
     spawn("powershell", [
       "-NoProfile", "-Command",
-      `Add-Type -AssemblyName presentationCore; $p = New-Object System.Windows.Media.MediaPlayer; $p.Open([uri]'${audioFilePath.replace(/\\/g, "\\\\")}'); $p.Play(); Start-Sleep -Seconds 10`,
+      `Add-Type -AssemblyName presentationCore; $p = New-Object System.Windows.Media.MediaPlayer; $done = $false; Register-ObjectEvent $p MediaEnded -Action { $script:done = $true } | Out-Null; $p.Open([uri]'${audioFilePath.replace(/\\/g, "\\\\")}'); $p.Play(); while (-not $done) { Start-Sleep -Milliseconds 200 }`,
     ], { windowsHide: true, stdio: "ignore" });
   } else if (process.platform === "darwin") {
     spawn("afplay", [audioFilePath], { stdio: "ignore" });
@@ -1227,13 +1227,18 @@ BEHAVIORAL RULES for every client that connects:
                 Use ONLY for catastrophic findings or decisions that block
                 progress. Misuse will train the user to ignore your notifs.
 
-3. Echo the full message body in your own chat / conversation output as well
-   as sending it through 'notify'. The user may be reading the terminal
-   directly; don't rely on them checking their phone / email.
+3. Echo the COMPLETE, UNTRUNCATED message body in your own chat / conversation
+   output as well as sending it through 'notify'. The user may be reading the
+   terminal directly; don't rely on them checking their phone / email. Do NOT
+   shorten, summarise, or cut off the message with "…" in your chat output —
+   show every word exactly as sent.
 
 4. The message body should be channel-agnostic. Never name 'Telegram', 'SMS',
-   'email', etc. in your messages — those are server delivery details the
-   user has already configured. Say 'notif' or 'notification' instead.
+   'email', 'desktop', etc. in your messages or in your chat output — those are
+   server delivery details the user has already configured and the client has
+   no business surfacing. Do NOT echo "Sent via: <channel list>" or any
+   variant of it. Just say 'notif' or 'notification' if you need to refer to
+   the act of notifying.
 
 5. When the user sends you an unsolicited message (visible as INBOX items in
    the 'notify' response, via 'poll', via 'wait_for_inbox', via

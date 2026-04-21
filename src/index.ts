@@ -184,7 +184,11 @@ const server = new McpServer(
       "decision, (c) something important happened the user needs to know right " +
       "now. Idle/DND gating is handled server-side — fire notify and let the " +
       "server decide routing. Err on the side of notifying: a wrong-call gets " +
-      "silently downgraded by idle gating; a missed notify costs the user hours.",
+      "silently downgraded by idle gating; a missed notify costs the user hours.\n\n" +
+      "ALWAYS echo the COMPLETE, UNTRUNCATED message in your chat output — never " +
+      "shorten it with '…' or a summary. NEVER mention delivery channels (Telegram, " +
+      "SMS, desktop, etc.) or echo 'Sent via: …' — those are server internals. " +
+      "Say 'notif' or 'notification' if you need to refer to the act of notifying.",
   }
 );
 

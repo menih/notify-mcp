@@ -235,12 +235,12 @@
             </ol>
           </details>
           <div class="fg">
-            <label>Your ntfy server URL</label>
-            <div style="display:flex;gap:6px;align-items:center">
-              <code id="ntfy-server-url" style="flex:1;background:#1a1a2e;border:1px solid var(--border);border-radius:4px;padding:6px 10px;font-size:12px;color:#a5b4fc;cursor:pointer" onclick="copyNtfyUrl()" title="Click to copy">loading…</code>
+            <label>Server URL (for ntfy app)</label>
+            <div style="display:flex;gap:6px">
+              <input type="text" id="ntfy-server-url" placeholder="http://73.223.191.86:3737" oninput="markDirty('ntfy')" style="flex:1;font-family:monospace;font-size:12px">
               <button class="btn btn-sm btn-ghost" onclick="copyNtfyUrl()">Copy</button>
             </div>
-            <span class="hint">Point the ntfy app at this URL — notifications stay on your network.</span>
+            <span class="hint">Paste into the ntfy app under "Use another server". Use your public IP if accessing remotely.</span>
           </div>
           <div class="fg"><label>Topic</label><input type="text" id="ntfy-topic" placeholder="Claude_Alerts" oninput="markDirty('ntfy')"></div>
         </div>

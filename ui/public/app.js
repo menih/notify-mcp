@@ -82,9 +82,8 @@ function populateForm() {
   const ntfy = config.ntfy ?? {};
   $("ntfy-enabled").checked = !!ntfy.enabled;
   $("ntfy-topic").value = ntfy.topic ?? "";
-  const ntfyUrl = `${location.protocol}//${location.hostname}:${location.port || (location.protocol === 'https:' ? 443 : 80)}/ntfy`;
-  const urlEl = document.getElementById("ntfy-server-url");
-  if (urlEl) urlEl.textContent = ntfyUrl;
+  const defaultUrl = `${location.protocol}//${location.hostname}:${location.port || (location.protocol === 'https:' ? 443 : 80)}`;
+  $("ntfy-server-url").value = ntfy.serverUrl || defaultUrl;
 
   // Discord
   const dc = config.discord ?? {};
@@ -360,12 +359,12 @@ async function saveSms() {
 }
 
 async function saveNtfy() {
-  await patch({ ntfy: { enabled: $("ntfy-enabled").checked, topic: $("ntfy-topic").value.trim() } });
+  await patch({ ntfy: { enabled: $("ntfy-enabled").checked, topic: $("ntfy-topic").value.trim(), serverUrl: $("ntfy-server-url").value.trim() } });
   clearDirty("ntfy");
 }
 
 function copyNtfyUrl() {
-  const url = document.getElementById("ntfy-server-url")?.textContent ?? "";
+  const url = $("ntfy-server-url").value.trim();
   navigator.clipboard.writeText(url).then(() => toast("Server URL copied!", "ok")).catch(() => toast("Copy failed", "error"));
 }
 async function saveDiscord() {

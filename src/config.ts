@@ -51,6 +51,7 @@ export interface EmailConfig {
 export interface NtfyConfig {
   enabled: boolean;
   topic: string;
+  serverUrl?: string;  // display only — shown in UI for pasting into the ntfy app
 }
 
 export interface DiscordConfig {

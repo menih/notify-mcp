@@ -32,7 +32,7 @@ function defaultConfig() {
     whatsapp: { enabled: false, instanceId: "", apiToken: "", phone: "" },
     sms: { enabled: false, accountSid: "", authToken: "", from: "", to: "" },
     email: { enabled: false, to: "" },
-    ntfy: { enabled: false, topic: "" },
+    ntfy: { enabled: false, topic: "", serverUrl: "" },
     discord: { enabled: false, webhookUrl: "", username: "Claude Notify" },
     slack: { enabled: false, webhookUrl: "" },
     teams: { enabled: false, webhookUrl: "" },

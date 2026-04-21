@@ -48,12 +48,39 @@ export interface EmailConfig {
   pass?: string;
 }
 
+export interface NtfyConfig {
+  enabled: boolean;
+  topic: string;
+  serverUrl?: string;
+  token?: string;
+}
+
+export interface DiscordConfig {
+  enabled: boolean;
+  webhookUrl: string;
+  username?: string;
+}
+
+export interface SlackConfig {
+  enabled: boolean;
+  webhookUrl: string;
+}
+
+export interface TeamsConfig {
+  enabled: boolean;
+  webhookUrl: string;
+}
+
 export interface Config {
   desktop: DesktopConfig;
   telegram: TelegramConfig;
   whatsapp: WhatsAppConfig;
   sms: SmsConfig;
   email: EmailConfig;
+  ntfy: NtfyConfig;
+  discord: DiscordConfig;
+  slack: SlackConfig;
+  teams: TeamsConfig;
 }
 
 const CONFIG_PATHS = [

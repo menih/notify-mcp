@@ -199,6 +199,139 @@
         </div>
       </div>
 
+      <!-- ── ntfy ─────────────────────────────────────────────────── -->
+      <div class="card" id="card-ntfy">
+        <div class="card-hd">
+          <div class="ch-meta">
+            <div class="channel-icon ntfy-icon">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            </div>
+            <span class="ch-name">ntfy</span><span class="tag">Push</span>
+          </div>
+          <span class="badge badge-idle" id="badge-ntfy">Not configured</span>
+        </div>
+        <div class="card-body">
+          <div class="actions">
+            <label class="toggle-wrap">
+              <input type="checkbox" id="ntfy-enabled" onchange="toggleNtfyEnabled()">
+              <span class="toggle"></span>
+            </label>
+            <span class="toggle-lbl">Enable</span>
+            <button class="btn btn-sm btn-primary" id="save-ntfy-btn" onclick="saveNtfy()">Save</button>
+            <button class="btn btn-sm btn-ghost" onclick="testChannel('ntfy')">Test</button>
+          </div>
+          <details class="guide">
+            <summary>Set up ntfy (1 min, free, no account needed)</summary>
+            <ol>
+              <li>Install the <a href="https://ntfy.sh" target="_blank">ntfy app</a> on your phone</li>
+              <li>Pick any topic name (e.g. <code>my-claude-alerts-abc123</code>) — keep it secret, it's your auth</li>
+              <li>Subscribe to that topic in the app</li>
+              <li>Paste the topic below and save</li>
+            </ol>
+          </details>
+          <div class="fg"><label>Topic</label><input type="text" id="ntfy-topic" placeholder="my-claude-alerts-abc123" oninput="markDirty('ntfy')"></div>
+          <div class="fg"><label>Server URL</label><input type="text" id="ntfy-server" placeholder="https://ntfy.sh" oninput="markDirty('ntfy')"><span class="hint">Leave default for ntfy.sh, or your self-hosted URL</span></div>
+          <div class="fg"><label>Token (optional)</label><input type="password" id="ntfy-token" placeholder="tk_…" oninput="markDirty('ntfy')"><span class="hint">Only needed for private self-hosted servers</span></div>
+        </div>
+      </div>
+
+      <!-- ── Discord ───────────────────────────────────────────────── -->
+      <div class="card" id="card-discord">
+        <div class="card-hd">
+          <div class="ch-meta">
+            <div class="channel-icon discord-icon">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><path d="M7.5 7.5c1-.5 2.5-.5 4.5-.5s3.5 0 4.5.5M7.5 16.5c1 .5 2.5.5 4.5.5s3.5 0 4.5-.5"/><path d="M3 3l4.5 1.5M21 3l-4.5 1.5M3 21l4.5-1.5M21 21l-4.5-1.5"/><path d="M3 3c0 9 0 12 9 15 9-3 9-6 9-15"/></svg>
+            </div>
+            <span class="ch-name">Discord</span><span class="tag">Webhook</span>
+          </div>
+          <span class="badge badge-idle" id="badge-discord">Not configured</span>
+        </div>
+        <div class="card-body">
+          <div class="actions">
+            <label class="toggle-wrap">
+              <input type="checkbox" id="discord-enabled" onchange="toggleDiscordEnabled()">
+              <span class="toggle"></span>
+            </label>
+            <span class="toggle-lbl">Enable</span>
+            <button class="btn btn-sm btn-primary" id="save-discord-btn" onclick="saveDiscord()">Save</button>
+            <button class="btn btn-sm btn-ghost" onclick="testChannel('discord')">Test</button>
+          </div>
+          <details class="guide">
+            <summary>Create a Discord webhook (1 min)</summary>
+            <ol>
+              <li>Open your Discord server → pick a channel → Edit Channel</li>
+              <li>Integrations → Webhooks → New Webhook → Copy URL</li>
+            </ol>
+          </details>
+          <div class="fg"><label>Webhook URL</label><input type="password" id="discord-webhook" placeholder="https://discord.com/api/webhooks/…" oninput="markDirty('discord')"></div>
+          <div class="fg"><label>Bot name (optional)</label><input type="text" id="discord-username" placeholder="Claude Notify" oninput="markDirty('discord')"></div>
+        </div>
+      </div>
+
+      <!-- ── Slack ─────────────────────────────────────────────────── -->
+      <div class="card" id="card-slack">
+        <div class="card-hd">
+          <div class="ch-meta">
+            <div class="channel-icon slack-icon">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 10c-.83 0-1.5-.67-1.5-1.5v-5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5z"/><path d="M20.5 10H19V8.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/><path d="M9.5 14c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5S8 21.33 8 20.5v-5c0-.83.67-1.5 1.5-1.5z"/><path d="M3.5 14H5v1.5c0 .83-.67 1.5-1.5 1.5S2 16.33 2 15.5 2.67 14 3.5 14z"/><path d="M14 14.5c0-.83.67-1.5 1.5-1.5h5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-5c-.83 0-1.5-.67-1.5-1.5z"/><path d="M15.5 19H14v1.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5-.67-1.5-1.5-1.5z"/><path d="M10 9.5C10 8.67 9.33 8 8.5 8h-5C2.67 8 2 8.67 2 9.5S2.67 11 3.5 11h5c.83 0 1.5-.67 1.5-1.5z"/><path d="M8.5 5H10V3.5C10 2.67 9.33 2 8.5 2S7 2.67 7 3.5 7.67 5 8.5 5z"/></svg>
+            </div>
+            <span class="ch-name">Slack</span><span class="tag">Webhook</span>
+          </div>
+          <span class="badge badge-idle" id="badge-slack">Not configured</span>
+        </div>
+        <div class="card-body">
+          <div class="actions">
+            <label class="toggle-wrap">
+              <input type="checkbox" id="slack-enabled" onchange="toggleSlackEnabled()">
+              <span class="toggle"></span>
+            </label>
+            <span class="toggle-lbl">Enable</span>
+            <button class="btn btn-sm btn-primary" id="save-slack-btn" onclick="saveSlack()">Save</button>
+            <button class="btn btn-sm btn-ghost" onclick="testChannel('slack')">Test</button>
+          </div>
+          <details class="guide">
+            <summary>Create a Slack webhook (2 min)</summary>
+            <ol>
+              <li>Go to <a href="https://api.slack.com/apps" target="_blank">api.slack.com/apps</a> → Create New App → From scratch</li>
+              <li>Incoming Webhooks → On → Add New Webhook to Workspace → pick channel → Copy URL</li>
+            </ol>
+          </details>
+          <div class="fg"><label>Webhook URL</label><input type="password" id="slack-webhook" placeholder="https://hooks.slack.com/services/…" oninput="markDirty('slack')"></div>
+        </div>
+      </div>
+
+      <!-- ── Teams ─────────────────────────────────────────────────── -->
+      <div class="card" id="card-teams">
+        <div class="card-hd">
+          <div class="ch-meta">
+            <div class="channel-icon teams-icon">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </div>
+            <span class="ch-name">Teams</span><span class="tag">Webhook</span>
+          </div>
+          <span class="badge badge-idle" id="badge-teams">Not configured</span>
+        </div>
+        <div class="card-body">
+          <div class="actions">
+            <label class="toggle-wrap">
+              <input type="checkbox" id="teams-enabled" onchange="toggleTeamsEnabled()">
+              <span class="toggle"></span>
+            </label>
+            <span class="toggle-lbl">Enable</span>
+            <button class="btn btn-sm btn-primary" id="save-teams-btn" onclick="saveTeams()">Save</button>
+            <button class="btn btn-sm btn-ghost" onclick="testChannel('teams')">Test</button>
+          </div>
+          <details class="guide">
+            <summary>Create a Teams webhook (2 min)</summary>
+            <ol>
+              <li>In Teams, go to the channel → ••• → Workflows → "Post to a channel when a webhook request is received"</li>
+              <li>Follow the wizard → copy the webhook URL at the end</li>
+            </ol>
+          </details>
+          <div class="fg"><label>Webhook URL</label><input type="password" id="teams-webhook" placeholder="https://…webhook.office.com/…" oninput="markDirty('teams')"></div>
+        </div>
+      </div>
+
       </div>
     </section>
 

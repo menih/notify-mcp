@@ -296,6 +296,10 @@ main {
 .telegram-icon { background: #0d1e2e; color: #38bdf8; }
 .whatsapp-icon { background: #0d2e1a; color: #4ade80; }
 .sms-icon      { background: #1e0d2e; color: #c084fc; }
+.ntfy-icon     { background: #1a2e0d; color: #86efac; }
+.discord-icon  { background: #0d0d2e; color: #a5b4fc; }
+.slack-icon    { background: #2e2a0d; color: #fbbf24; }
+.teams-icon    { background: #0d1e2e; color: #7dd3fc; }
 
 /* ── Tags & badges ───────────────────────────────────────────────────────── */
 

@@ -32,6 +32,10 @@ function defaultConfig() {
     whatsapp: { enabled: false, instanceId: "", apiToken: "", phone: "" },
     sms: { enabled: false, accountSid: "", authToken: "", from: "", to: "" },
     email: { enabled: false, to: "" },
+    ntfy: { enabled: false, topic: "", serverUrl: "https://ntfy.sh", token: "" },
+    discord: { enabled: false, webhookUrl: "", username: "Claude Notify" },
+    slack: { enabled: false, webhookUrl: "" },
+    teams: { enabled: false, webhookUrl: "" },
     dnd: {
       enabled: false,      // manual toggle — when true, suppress all non-priority=high notifs
       schedule: {          // scheduled DND windows — evaluated if dnd.enabled === false
@@ -99,6 +103,10 @@ function maskSecrets(config: Record<string, any>): Record<string, any> {
   if (c.sms?.authToken) c.sms.authToken = MASKED;
   if (c.telegram?.token) c.telegram.token = MASKED;
   if (c.whatsapp?.apiToken) c.whatsapp.apiToken = MASKED;
+  if (c.ntfy?.token) c.ntfy.token = MASKED;
+  if (c.discord?.webhookUrl) c.discord.webhookUrl = MASKED;
+  if (c.slack?.webhookUrl) c.slack.webhookUrl = MASKED;
+  if (c.teams?.webhookUrl) c.teams.webhookUrl = MASKED;
   return c;
 }
 
@@ -107,7 +115,7 @@ function mergePreservingSecrets(
   update: Record<string, any>
 ): Record<string, any> {
   const merged: Record<string, any> = { ...defaultConfig(), ...existing };
-  for (const section of ["desktop", "telegram", "whatsapp", "sms", "email", "dnd", "idle"] as const) {
+  for (const section of ["desktop", "telegram", "whatsapp", "sms", "email", "ntfy", "discord", "slack", "teams", "dnd", "idle"] as const) {
     merged[section] = { ...(merged[section] || {}), ...(update[section] || {}) };
   }
   // Nested schedule inside dnd
@@ -127,6 +135,10 @@ function mergePreservingSecrets(
   guard(["sms", "authToken"]);
   guard(["telegram", "token"]);
   guard(["whatsapp", "apiToken"]);
+  guard(["ntfy", "token"]);
+  guard(["discord", "webhookUrl"]);
+  guard(["slack", "webhookUrl"]);
+  guard(["teams", "webhookUrl"]);
   return merged;
 }
 
@@ -377,6 +389,56 @@ app.post("/api/test/email", async (_req, res) => {
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
+});
+
+app.post("/api/test/ntfy", async (_req, res) => {
+  const cfg = loadConfig();
+  const ntfy = cfg.ntfy ?? {};
+  if (!ntfy.topic) { res.status(400).json({ error: "Topic is required." }); return; }
+  try {
+    const base = (ntfy.serverUrl ?? "https://ntfy.sh").replace(/\/$/, "");
+    const headers: Record<string, string> = {
+      "Content-Type": "text/plain", "Title": "Claude Notify — test", "Priority": "3", "Tags": "white_check_mark",
+    };
+    if (ntfy.token) headers["Authorization"] = `Bearer ${ntfy.token}`;
+    const r = await fetch(`${base}/${encodeURIComponent(ntfy.topic)}`, { method: "POST", headers, body: "Test from Claude Notify — ntfy is working!" });
+    if (!r.ok) throw new Error(`ntfy ${r.status}: ${await r.text()}`);
+    res.json({ ok: true, message: `ntfy notification sent to topic '${ntfy.topic}'` });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+
+app.post("/api/test/discord", async (_req, res) => {
+  const cfg = loadConfig();
+  const dc = cfg.discord ?? {};
+  if (!dc.webhookUrl) { res.status(400).json({ error: "Webhook URL is required." }); return; }
+  try {
+    const r = await fetch(dc.webhookUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: dc.username ?? "Claude Notify", embeds: [{ title: "Claude Notify — test", description: "Test from Claude Notify — Discord is working!", color: 0x7c6dfa, timestamp: new Date().toISOString() }] }) });
+    if (!r.ok) throw new Error(`Discord ${r.status}: ${await r.text()}`);
+    res.json({ ok: true, message: "Discord message sent!" });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+app.post("/api/test/slack", async (_req, res) => {
+  const cfg = loadConfig();
+  const sl = cfg.slack ?? {};
+  if (!sl.webhookUrl) { res.status(400).json({ error: "Webhook URL is required." }); return; }
+  try {
+    const r = await fetch(sl.webhookUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "🔔 *Claude Notify — test*\nTest from Claude Notify — Slack is working!" }) });
+    if (!r.ok) throw new Error(`Slack ${r.status}: ${await r.text()}`);
+    res.json({ ok: true, message: "Slack message sent!" });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+app.post("/api/test/teams", async (_req, res) => {
+  const cfg = loadConfig();
+  const tm = cfg.teams ?? {};
+  if (!tm.webhookUrl) { res.status(400).json({ error: "Webhook URL is required." }); return; }
+  try {
+    const r = await fetch(tm.webhookUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "message", attachments: [{ contentType: "application/vnd.microsoft.card.adaptive", contentUrl: null, content: { $schema: "http://adaptivecards.io/schemas/adaptive-card.json", type: "AdaptiveCard", version: "1.2", body: [{ type: "TextBlock", size: "Medium", weight: "Bolder", text: "Claude Notify — test" }, { type: "TextBlock", text: "Test from Claude Notify — Teams is working!", wrap: true }] } }] }) });
+    if (!r.ok) throw new Error(`Teams ${r.status}: ${await r.text()}`);
+    res.json({ ok: true, message: "Teams message sent!" });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
 });
 
 // ── Google ADC auto-setup ─────────────────────────────────────────────────────
@@ -643,7 +705,16 @@ async function sendNotification(message: string, priority: "low" | "normal" | "h
   // the TTL), they clearly want a reply over that channel, so skip idle gating.
   const inTelegramConvo = Date.now() - lastTelegramInboundAt < TELEGRAM_CONVO_TTL_MS;
   let desktopOnlyMode = false;
-  if (priority !== "high" && !inTelegramConvo && cfg.idle?.enabled !== false) {
+
+  // If the web UI is open and the user is actively watching it, skip remote channels.
+  if (priority !== "high" && isUiActivelyOpen()) {
+    if (cfg.idle?.alwaysDesktopWhenActive !== false && cfg.desktop?.enabled) {
+      desktopOnlyMode = true;
+      log("·", "ui", `UI visible — desktop-only`, client);
+    }
+  }
+
+  if (!desktopOnlyMode && priority !== "high" && !inTelegramConvo && cfg.idle?.enabled !== false) {
     const idleSecs = getOsIdleSeconds();
     const threshold = cfg.idle?.thresholdSeconds ?? 120;
     const userIsActive = idleSecs >= 0 && idleSecs < threshold;
@@ -740,6 +811,106 @@ async function sendNotification(message: string, priority: "low" | "normal" | "h
       await transport.sendMail({ from: email.connectedEmail ?? email.user ?? email.to,
         to: email.to, subject: "Claude Notify", text: message });
     });
+  }
+
+  // ntfy
+  if (!desktopOnlyMode) {
+    const ntfy = cfg.ntfy ?? {};
+    if (ntfy.enabled && ntfy.topic) {
+      await send("ntfy", async () => {
+        const base = (ntfy.serverUrl ?? "https://ntfy.sh").replace(/\/$/, "");
+        const priorityMap: Record<string, number> = { low: 2, normal: 3, high: 5 };
+        const headers: Record<string, string> = {
+          "Content-Type": "text/plain",
+          "Title": "Claude Notify",
+          "Priority": String(priorityMap[priority] ?? 3),
+          "Tags": priority === "high" ? "rotating_light" : "bell",
+        };
+        if (ntfy.token) headers["Authorization"] = `Bearer ${ntfy.token}`;
+        const r = await fetch(`${base}/${encodeURIComponent(ntfy.topic)}`, {
+          method: "POST", headers, body: message,
+        });
+        if (!r.ok) throw new Error(`ntfy ${r.status}: ${await r.text()}`);
+      });
+    }
+  }
+
+  // Discord
+  if (!desktopOnlyMode) {
+    const dc = cfg.discord ?? {};
+    if (dc.enabled && dc.webhookUrl) {
+      await send("discord", async () => {
+        const colorMap: Record<string, number> = { low: 0x6b7280, normal: 0x7c6dfa, high: 0xef4444 };
+        const r = await fetch(dc.webhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: dc.username ?? "Claude Notify",
+            embeds: [{
+              title: "Claude Notify",
+              description: message,
+              color: colorMap[priority] ?? colorMap.normal,
+              timestamp: new Date().toISOString(),
+            }],
+          }),
+        });
+        if (!r.ok) throw new Error(`Discord ${r.status}: ${await r.text()}`);
+      });
+    }
+  }
+
+  // Slack
+  if (!desktopOnlyMode) {
+    const sl = cfg.slack ?? {};
+    if (sl.enabled && sl.webhookUrl) {
+      await send("slack", async () => {
+        const emojiMap: Record<string, string> = { low: "ℹ️", normal: "🔔", high: "🚨" };
+        const emoji = emojiMap[priority] ?? emojiMap.normal;
+        const r = await fetch(sl.webhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: `${emoji} *Claude Notify*`,
+            blocks: [
+              { type: "section", text: { type: "mrkdwn", text: `${emoji} *Claude Notify*\n${message}` } },
+              { type: "context", elements: [{ type: "mrkdwn", text: `Priority: ${priority}` }] },
+            ],
+          }),
+        });
+        if (!r.ok) throw new Error(`Slack ${r.status}: ${await r.text()}`);
+      });
+    }
+  }
+
+  // Teams
+  if (!desktopOnlyMode) {
+    const tm = cfg.teams ?? {};
+    if (tm.enabled && tm.webhookUrl) {
+      await send("teams", async () => {
+        const colorMap: Record<string, string> = { low: "Default", normal: "Accent", high: "Attention" };
+        const r = await fetch(tm.webhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "message",
+            attachments: [{
+              contentType: "application/vnd.microsoft.card.adaptive",
+              contentUrl: null,
+              content: {
+                $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+                type: "AdaptiveCard", version: "1.2",
+                body: [
+                  { type: "TextBlock", size: "Medium", weight: "Bolder", text: "Claude Notify", color: colorMap[priority] ?? "Default" },
+                  { type: "TextBlock", text: message, wrap: true },
+                  { type: "TextBlock", text: `Priority: ${priority}`, isSubtle: true, size: "Small" },
+                ],
+              },
+            }],
+          }),
+        });
+        if (!r.ok) throw new Error(`Teams ${r.status}: ${await r.text()}`);
+      });
+    }
   }
 
   return [
@@ -841,6 +1012,25 @@ let lastUserMessageId: number | undefined;
 // goes quiet.
 let lastTelegramInboundAt = 0;
 const TELEGRAM_CONVO_TTL_MS = 5 * 60 * 1000;
+
+// Page visibility: the web UI reports when it becomes visible/hidden so the
+// server can skip external channels while the user is actively watching the UI.
+let uiVisibleAt = 0;   // last time UI reported visible
+let uiHiddenAt  = 0;   // last time UI reported hidden (0 = never seen)
+const UI_VISIBLE_TTL_MS = 30_000; // if no heartbeat for 30s, treat as unknown
+
+app.post("/api/ui/visibility", (req, res) => {
+  const { visible } = req.body ?? {};
+  if (visible) { uiVisibleAt = Date.now(); }
+  else         { uiHiddenAt  = Date.now(); }
+  res.json({ ok: true });
+});
+
+function isUiActivelyOpen(): boolean {
+  if (uiVisibleAt === 0) return false;  // never reported
+  if (uiHiddenAt > uiVisibleAt) return false;  // last report was hidden
+  return Date.now() - uiVisibleAt < UI_VISIBLE_TTL_MS;
+}
 
 // Session tagging: a session may declare a tag (e.g. "alphawave") when it
 // connects to /mcp?tag=alphawave. Telegram messages starting with "@<tag>"

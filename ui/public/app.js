@@ -71,6 +71,29 @@ function populateForm() {
   $("sms-from").value = sms.from ?? "";
   $("sms-to").value = sms.to ?? "";
 
+  // ntfy
+  const ntfy = config.ntfy ?? {};
+  $("ntfy-enabled").checked = !!ntfy.enabled;
+  $("ntfy-topic").value = ntfy.topic ?? "";
+  $("ntfy-server").value = ntfy.serverUrl ?? "https://ntfy.sh";
+  $("ntfy-token").value = ntfy.token ?? "";
+
+  // Discord
+  const dc = config.discord ?? {};
+  $("discord-enabled").checked = !!dc.enabled;
+  $("discord-webhook").value = dc.webhookUrl ?? "";
+  $("discord-username").value = dc.username ?? "";
+
+  // Slack
+  const sl = config.slack ?? {};
+  $("slack-enabled").checked = !!sl.enabled;
+  $("slack-webhook").value = sl.webhookUrl ?? "";
+
+  // Teams
+  const tm = config.teams ?? {};
+  $("teams-enabled").checked = !!tm.enabled;
+  $("teams-webhook").value = tm.webhookUrl ?? "";
+
   // DND
   const dnd = config.dnd ?? {};
   $("dnd-enabled").checked = !!dnd.enabled;
@@ -127,6 +150,22 @@ function updateBadges() {
   setBadge("sms",
     sms.enabled && smsReady ? "ok" : smsReady ? "warn" : sms.accountSid ? "warn" : "idle",
     sms.enabled && smsReady ? "Configured" : smsReady ? "Disabled" : sms.accountSid ? "Incomplete" : "Not configured");
+
+  const ntfyC = config.ntfy ?? {};
+  setBadge("ntfy", ntfyC.enabled && ntfyC.topic ? "ok" : ntfyC.topic ? "warn" : "idle",
+    ntfyC.enabled && ntfyC.topic ? "Configured" : ntfyC.topic ? "Disabled" : "Not configured");
+
+  const dcC = config.discord ?? {};
+  setBadge("discord", dcC.enabled && dcC.webhookUrl ? "ok" : dcC.webhookUrl ? "warn" : "idle",
+    dcC.enabled && dcC.webhookUrl ? "Configured" : dcC.webhookUrl ? "Disabled" : "Not configured");
+
+  const slC = config.slack ?? {};
+  setBadge("slack", slC.enabled && slC.webhookUrl ? "ok" : slC.webhookUrl ? "warn" : "idle",
+    slC.enabled && slC.webhookUrl ? "Configured" : slC.webhookUrl ? "Disabled" : "Not configured");
+
+  const tmC = config.teams ?? {};
+  setBadge("teams", tmC.enabled && tmC.webhookUrl ? "ok" : tmC.webhookUrl ? "warn" : "idle",
+    tmC.enabled && tmC.webhookUrl ? "Configured" : tmC.webhookUrl ? "Disabled" : "Not configured");
 
   // DND badge: "Active" (red), "Scheduled" (warn), or "Off" (idle)
   const dnd = config.dnd ?? {};
@@ -219,6 +258,18 @@ async function toggleEmailEnabled() {
 async function toggleSmsEnabled() {
   await patch({ sms: { enabled: $("sms-enabled").checked } });
 }
+async function toggleNtfyEnabled() {
+  await patch({ ntfy: { enabled: $("ntfy-enabled").checked } });
+}
+async function toggleDiscordEnabled() {
+  await patch({ discord: { enabled: $("discord-enabled").checked } });
+}
+async function toggleSlackEnabled() {
+  await patch({ slack: { enabled: $("slack-enabled").checked } });
+}
+async function toggleTeamsEnabled() {
+  await patch({ teams: { enabled: $("teams-enabled").checked } });
+}
 
 async function saveTelegram() {
   await patch({
@@ -288,6 +339,23 @@ async function saveSms() {
     },
   });
   clearDirty("sms");
+}
+
+async function saveNtfy() {
+  await patch({ ntfy: { enabled: $("ntfy-enabled").checked, topic: $("ntfy-topic").value.trim(), serverUrl: $("ntfy-server").value.trim() || "https://ntfy.sh", token: $("ntfy-token").value.trim() } });
+  clearDirty("ntfy");
+}
+async function saveDiscord() {
+  await patch({ discord: { enabled: $("discord-enabled").checked, webhookUrl: $("discord-webhook").value.trim(), username: $("discord-username").value.trim() || "Claude Notify" } });
+  clearDirty("discord");
+}
+async function saveSlack() {
+  await patch({ slack: { enabled: $("slack-enabled").checked, webhookUrl: $("slack-webhook").value.trim() } });
+  clearDirty("slack");
+}
+async function saveTeams() {
+  await patch({ teams: { enabled: $("teams-enabled").checked, webhookUrl: $("teams-webhook").value.trim() } });
+  clearDirty("teams");
 }
 
 async function patch(update) {
@@ -534,6 +602,38 @@ function toast(msg, type = "ok") {
 // ── Utils ─────────────────────────────────────────────────────────────────
 
 function $(id) { return document.getElementById(id); }
+
+// ── Page visibility reporting ─────────────────────────────────────────────
+// Tell the server when this tab is focused so it can skip external channels
+// while the user is actively watching the UI.
+
+function reportVisibility(visible) {
+  fetch("/api/ui/visibility", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ visible }),
+  }).catch(() => {});
+}
+
+let visibilityHeartbeat;
+function startVisibilityHeartbeat() {
+  clearInterval(visibilityHeartbeat);
+  visibilityHeartbeat = setInterval(() => {
+    if (!document.hidden) reportVisibility(true);
+  }, 15000);
+}
+
+document.addEventListener("visibilitychange", () => {
+  reportVisibility(!document.hidden);
+  if (!document.hidden) startVisibilityHeartbeat();
+  else clearInterval(visibilityHeartbeat);
+});
+window.addEventListener("focus", () => { reportVisibility(true); startVisibilityHeartbeat(); });
+window.addEventListener("blur",  () => reportVisibility(false));
+
+// Report on load and start heartbeat
+reportVisibility(!document.hidden);
+if (!document.hidden) startVisibilityHeartbeat();
 
 function copyText(el) {
   const text = el.textContent.replace(" 📋", "").trim();

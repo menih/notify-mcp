@@ -202,6 +202,10 @@ function handleNtfyJson(req: import("express").Request, res: import("express").R
   req.on("close", () => { clearInterval(keepalive); ntfySubscribers.get(topic)?.delete(sub); });
 }
 
+// ntfy health + info endpoints — app checks these before subscribing
+app.get("/v1/health", (_req, res) => res.json({ healthy: true }));
+app.get("/v1/info", (_req, res) => res.json({ version: "2.11.0", sha: "n/a" }));
+
 // ntfy app hits /:topic/sse or /:topic/json (no /ntfy/ prefix)
 app.get("/:topic/sse",  (req, res) => {
   if (["api", "auth", "mcp", "assets", "ntfy"].includes(req.params.topic)) { res.status(404).end(); return; }

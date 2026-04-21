@@ -83,7 +83,7 @@ function populateForm() {
   $("ntfy-enabled").checked = !!ntfy.enabled;
   $("ntfy-topic").value = ntfy.topic ?? "";
   const defaultUrl = `${location.protocol}//${location.hostname}:${location.port || (location.protocol === 'https:' ? 443 : 80)}`;
-  $("ntfy-server-url").value = ntfy.serverUrl || defaultUrl;
+  $("ntfy-server-url").value = (ntfy.serverUrl || defaultUrl).replace(/\/ntfy\/?$/, "");
 
   // Discord
   const dc = config.discord ?? {};

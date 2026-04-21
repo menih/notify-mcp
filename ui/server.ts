@@ -1737,6 +1737,69 @@ function createMcpServer(clientId: string, sessionTag?: string) {
     }
   );
 
+  server.tool(
+    "update_instructions",
+    "Persist a block of behavioral instructions for this client into its CLAUDE.md " +
+      "(or equivalent config file) so they survive session restarts and context compaction. " +
+      "Call this whenever the user asks you to remember a rule, change a behavior, or update " +
+      "how you should act — the instructions will be reloaded on every future session. " +
+      "Pass the full desired instructions block; it replaces the previous block atomically.",
+    {
+      instructions: z.string().max(4000).describe("The full instructions block to persist"),
+      target: z.enum(["global", "project"]).default("global").describe(
+        "global = ~/.claude/CLAUDE.md (all projects); project = .claude/CLAUDE.md in cwd"
+      ),
+    },
+    async ({ instructions, target }) => {
+      try {
+        const MARKER_START = "<!-- omni-notify-mcp:instructions:start -->";
+        const MARKER_END   = "<!-- omni-notify-mcp:instructions:end -->";
+        const block = `${MARKER_START}\n## omni-notify-mcp behavioral rules\n\n${instructions.trim()}\n${MARKER_END}`;
+
+        let claudeMdPath: string;
+        if (target === "global") {
+          const claudeDir = join(homedir(), ".claude");
+          if (!existsSync(claudeDir)) mkdirSync(claudeDir, { recursive: true });
+          claudeMdPath = join(claudeDir, "CLAUDE.md");
+        } else {
+          const projectClaudeDir = join(process.cwd(), ".claude");
+          if (!existsSync(projectClaudeDir)) mkdirSync(projectClaudeDir, { recursive: true });
+          claudeMdPath = join(projectClaudeDir, "CLAUDE.md");
+        }
+
+        let existing = "";
+        if (existsSync(claudeMdPath)) {
+          existing = readFileSync(claudeMdPath, "utf8");
+        }
+
+        let updated: string;
+        if (existing.includes(MARKER_START)) {
+          // Replace existing block
+          const startIdx = existing.indexOf(MARKER_START);
+          const endIdx   = existing.indexOf(MARKER_END);
+          if (endIdx !== -1) {
+            updated = existing.slice(0, startIdx) + block + existing.slice(endIdx + MARKER_END.length);
+          } else {
+            updated = existing.slice(0, startIdx) + block;
+          }
+        } else {
+          // Append
+          updated = existing + (existing.endsWith("\n") || existing === "" ? "" : "\n") + "\n" + block + "\n";
+        }
+
+        writeFileSync(claudeMdPath, updated, "utf8");
+        return {
+          content: [{ type: "text" as const, text: `Instructions persisted to ${claudeMdPath}` }],
+        };
+      } catch (err) {
+        return {
+          content: [{ type: "text" as const, text: `Failed to persist instructions: ${err instanceof Error ? err.message : String(err)}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
   return server;
 }
 
@@ -1934,8 +1997,33 @@ app.all("/mcp", async (req, res) => {
       clientVersion: initBody?.params?.clientInfo?.version,
       workspaceName,
     };
+    trackReconnect(clientId);
   }
 });
+
+// ── Reconnect tracker ─────────────────────────────────────────────────────────
+// After server restart, collect clients that reconnect within RECONNECT_WINDOW_MS
+// then send a single notify confirming they received updated instructions.
+
+const RECONNECT_WINDOW_MS = 20_000;
+const reconnectedClients: string[] = [];
+let reconnectNotifScheduled = false;
+const serverStartedAt = Date.now();
+
+function trackReconnect(clientId: string): void {
+  if (Date.now() - serverStartedAt > RECONNECT_WINDOW_MS) return;
+  if (reconnectedClients.includes(clientId)) return;
+  reconnectedClients.push(clientId);
+  if (!reconnectNotifScheduled) {
+    reconnectNotifScheduled = true;
+    setTimeout(async () => {
+      const list = reconnectedClients.join(", ");
+      const count = reconnectedClients.length;
+      const msg = `${count} client${count === 1 ? "" : "s"} reconnected and received updated instructions: ${list}`;
+      try { await sendNotification(msg, "low", "omni-notify-mcp"); } catch { /* best effort */ }
+    }, RECONNECT_WINDOW_MS);
+  }
+}
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 

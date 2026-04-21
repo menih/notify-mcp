@@ -188,7 +188,10 @@ const server = new McpServer(
       "ALWAYS echo the COMPLETE, UNTRUNCATED message in your chat output — never " +
       "shorten it with '…' or a summary. NEVER mention delivery channels (Telegram, " +
       "SMS, desktop, etc.) or echo 'Sent via: …' — those are server internals. " +
-      "Say 'notif' or 'notification' if you need to refer to the act of notifying.",
+      "Say 'notif' or 'notification' if you need to refer to the act of notifying.\n\n" +
+      "When the user asks you to remember a behavioral rule or change how you should act, " +
+      "call `update_instructions` with the full updated rules block. This writes to CLAUDE.md " +
+      "so the instructions persist across sessions and context compaction.",
   }
 );
 
@@ -263,6 +266,19 @@ server.tool(
   "Current DND state. Drains inbox as a side-effect.",
   {},
   async () => proxyToolCall("get_dnd_status", {})
+);
+
+server.tool(
+  "update_instructions",
+  "Persist behavioral instructions for this client into CLAUDE.md so they survive " +
+    "session restarts and context compaction. Call when the user asks you to remember " +
+    "a rule or change how you should behave. Pass the full desired block; it replaces " +
+    "the previous one atomically.",
+  {
+    instructions: z.string().max(4000),
+    target: z.enum(["global", "project"]).default("global"),
+  },
+  async (args) => proxyToolCall("update_instructions", args)
 );
 
 // `reply` is the Channels return-path: Claude Code invokes it when the agent

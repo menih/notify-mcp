@@ -226,17 +226,23 @@
             <button class="btn btn-sm btn-ghost" onclick="testChannel('ntfy')">Test</button>
           </div>
           <details class="guide">
-            <summary>Set up ntfy (1 min, free, no account needed)</summary>
+            <summary>Set up ntfy (1 min, free, fully private)</summary>
             <ol>
               <li>Install the <a href="https://ntfy.sh" target="_blank">ntfy app</a> on your phone</li>
-              <li>Pick any topic name (e.g. <code>my-claude-alerts-abc123</code>) — keep it secret, it's your auth</li>
-              <li>Subscribe to that topic in the app</li>
-              <li>Paste the topic below and save</li>
+              <li>In the app: tap <b>+</b> → <b>Use another server</b> → enter the Server URL shown below</li>
+              <li>Pick a topic name and subscribe</li>
+              <li>Paste the same topic below and save</li>
             </ol>
           </details>
-          <div class="fg"><label>Topic</label><input type="text" id="ntfy-topic" placeholder="my-claude-alerts-abc123" oninput="markDirty('ntfy')"></div>
-          <div class="fg"><label>Server URL</label><input type="text" id="ntfy-server" placeholder="https://ntfy.sh" oninput="markDirty('ntfy')"><span class="hint">Leave default for ntfy.sh, or your self-hosted URL</span></div>
-          <div class="fg"><label>Token (optional)</label><input type="password" id="ntfy-token" placeholder="tk_…" oninput="markDirty('ntfy')"><span class="hint">Only needed for private self-hosted servers</span></div>
+          <div class="fg">
+            <label>Your ntfy server URL</label>
+            <div style="display:flex;gap:6px;align-items:center">
+              <code id="ntfy-server-url" style="flex:1;background:#1a1a2e;border:1px solid var(--border);border-radius:4px;padding:6px 10px;font-size:12px;color:#a5b4fc;cursor:pointer" onclick="copyNtfyUrl()" title="Click to copy">loading…</code>
+              <button class="btn btn-sm btn-ghost" onclick="copyNtfyUrl()">Copy</button>
+            </div>
+            <span class="hint">Point the ntfy app at this URL — notifications stay on your network.</span>
+          </div>
+          <div class="fg"><label>Topic</label><input type="text" id="ntfy-topic" placeholder="Claude_Alerts" oninput="markDirty('ntfy')"></div>
         </div>
       </div>
 

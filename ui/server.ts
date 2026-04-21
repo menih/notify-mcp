@@ -32,7 +32,7 @@ function defaultConfig() {
     whatsapp: { enabled: false, instanceId: "", apiToken: "", phone: "" },
     sms: { enabled: false, accountSid: "", authToken: "", from: "", to: "" },
     email: { enabled: false, to: "" },
-    ntfy: { enabled: false, topic: "", serverUrl: "https://ntfy.sh", token: "" },
+    ntfy: { enabled: false, topic: "" },
     discord: { enabled: false, webhookUrl: "", username: "Claude Notify" },
     slack: { enabled: false, webhookUrl: "" },
     teams: { enabled: false, webhookUrl: "" },
@@ -103,7 +103,6 @@ function maskSecrets(config: Record<string, any>): Record<string, any> {
   if (c.sms?.authToken) c.sms.authToken = MASKED;
   if (c.telegram?.token) c.telegram.token = MASKED;
   if (c.whatsapp?.apiToken) c.whatsapp.apiToken = MASKED;
-  if (c.ntfy?.token) c.ntfy.token = MASKED;
   if (c.discord?.webhookUrl) c.discord.webhookUrl = MASKED;
   if (c.slack?.webhookUrl) c.slack.webhookUrl = MASKED;
   if (c.teams?.webhookUrl) c.teams.webhookUrl = MASKED;
@@ -135,7 +134,6 @@ function mergePreservingSecrets(
   guard(["sms", "authToken"]);
   guard(["telegram", "token"]);
   guard(["whatsapp", "apiToken"]);
-  guard(["ntfy", "token"]);
   guard(["discord", "webhookUrl"]);
   guard(["slack", "webhookUrl"]);
   guard(["teams", "webhookUrl"]);
@@ -145,6 +143,104 @@ function mergePreservingSecrets(
 const app = express();
 app.use(express.json());
 app.use(express.static(PUBLIC_DIR));
+
+// ── Built-in ntfy server ──────────────────────────────────────────────────────
+// Implements the ntfy publish/subscribe protocol internally so the ntfy mobile
+// app can point directly at this server. No external service, fully private.
+
+interface NtfySubscriber {
+  res: import("express").Response;
+  topic: string;
+}
+
+const ntfySubscribers: Map<string, Set<NtfySubscriber>> = new Map();
+
+function ntfyFanout(topic: string, message: string, title: string, priority: number, tags: string): void {
+  const subs = ntfySubscribers.get(topic);
+  if (!subs || subs.size === 0) return;
+  const id = Date.now();
+  const event = [
+    `id: ${id}`,
+    `event: message`,
+    `data: ${JSON.stringify({ id: String(id), time: Math.floor(id / 1000), event: "message", topic, title, message, priority, tags: tags ? tags.split(",") : [] })}`,
+    "",
+    "",
+  ].join("\n");
+  for (const sub of subs) {
+    try { sub.res.write(event); } catch { subs.delete(sub); }
+  }
+}
+
+// SSE subscribe — ntfy app connects here
+app.get("/ntfy/:topic/sse", (req, res) => {
+  const { topic } = req.params;
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+  res.write(`: connected to omni-notify-mcp ntfy\n\n`);
+
+  const sub: NtfySubscriber = { res, topic };
+  if (!ntfySubscribers.has(topic)) ntfySubscribers.set(topic, new Set());
+  ntfySubscribers.get(topic)!.add(sub);
+
+  const keepalive = setInterval(() => { try { res.write(": keepalive\n\n"); } catch { clearInterval(keepalive); } }, 30_000);
+
+  req.on("close", () => {
+    clearInterval(keepalive);
+    ntfySubscribers.get(topic)?.delete(sub);
+  });
+});
+
+// Also support ntfy's JSON stream endpoint
+app.get("/ntfy/:topic/json", (req, res) => {
+  const { topic } = req.params;
+  res.setHeader("Content-Type", "application/x-ndjson");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const sub: NtfySubscriber = { res, topic };
+  if (!ntfySubscribers.has(topic)) ntfySubscribers.set(topic, new Set());
+  ntfySubscribers.get(topic)!.add(sub);
+
+  const keepalive = setInterval(() => {
+    try { res.write(JSON.stringify({ event: "keepalive", time: Math.floor(Date.now() / 1000) }) + "\n"); }
+    catch { clearInterval(keepalive); }
+  }, 30_000);
+
+  req.on("close", () => {
+    clearInterval(keepalive);
+    ntfySubscribers.get(topic)?.delete(sub);
+  });
+});
+
+// Publish endpoint — ntfy protocol POST
+app.put("/ntfy/:topic", express.text({ type: "*/*" }), (req, res) => {
+  const { topic } = req.params;
+  const message = typeof req.body === "string" ? req.body : "";
+  const title = decodeURIComponent(req.headers["title"] as string || req.headers["x-title"] as string || "Claude Notify");
+  const priority = parseInt((req.headers["priority"] || req.headers["x-priority"] || "3") as string) || 3;
+  const tags = ((req.headers["tags"] || req.headers["x-tags"] || "") as string);
+  ntfyFanout(topic, message, title, priority, tags);
+  res.json({ id: String(Date.now()), time: Math.floor(Date.now() / 1000), event: "message", topic, title, message, priority });
+});
+app.post("/ntfy/:topic", express.text({ type: "*/*" }), (req, res) => {
+  const { topic } = req.params;
+  const message = typeof req.body === "string" ? req.body : "";
+  const title = decodeURIComponent(req.headers["title"] as string || req.headers["x-title"] as string || "Claude Notify");
+  const priority = parseInt((req.headers["priority"] || req.headers["x-priority"] || "3") as string) || 3;
+  const tags = ((req.headers["tags"] || req.headers["x-tags"] || "") as string);
+  ntfyFanout(topic, message, title, priority, tags);
+  res.json({ id: String(Date.now()), time: Math.floor(Date.now() / 1000), event: "message", topic, title, message, priority });
+});
+
+// Subscriber count endpoint (for badge)
+app.get("/ntfy/:topic/subscribers", (req, res) => {
+  const count = ntfySubscribers.get(req.params.topic)?.size ?? 0;
+  res.json({ topic: req.params.topic, subscribers: count });
+});
 
 // ── Config API ────────────────────────────────────────────────────────────────
 
@@ -396,14 +492,10 @@ app.post("/api/test/ntfy", async (_req, res) => {
   const ntfy = cfg.ntfy ?? {};
   if (!ntfy.topic) { res.status(400).json({ error: "Topic is required." }); return; }
   try {
-    const base = (ntfy.serverUrl ?? "https://ntfy.sh").replace(/\/$/, "");
-    const headers: Record<string, string> = {
-      "Content-Type": "text/plain; charset=utf-8", "Title": encodeURIComponent("Claude Notify - test"), "Priority": "3", "Tags": "white_check_mark",
-    };
-    if (ntfy.token) headers["Authorization"] = `Bearer ${ntfy.token}`;
-    const r = await fetch(`${base}/${encodeURIComponent(ntfy.topic)}`, { method: "POST", headers, body: Buffer.from("Test from Claude Notify - ntfy is working!", "utf8") });
-    if (!r.ok) throw new Error(`ntfy ${r.status}: ${await r.text()}`);
-    res.json({ ok: true, message: `ntfy notification sent to topic '${ntfy.topic}'` });
+    const subs = ntfySubscribers.get(ntfy.topic)?.size ?? 0;
+    if (subs === 0) { res.status(400).json({ error: `No subscribers on topic '${ntfy.topic}'. Open the ntfy app and subscribe to this topic first.` }); return; }
+    ntfyFanout(ntfy.topic, "Test from Claude Notify - ntfy is working!", "Claude Notify - test", 3, "white_check_mark");
+    res.json({ ok: true, message: `ntfy notification sent to ${subs} subscriber(s) on topic '${ntfy.topic}'` });
   } catch (err) { res.status(500).json({ error: String(err) }); }
 });
 
@@ -813,24 +905,16 @@ async function sendNotification(message: string, priority: "low" | "normal" | "h
     });
   }
 
-  // ntfy
+  // ntfy (built-in server — direct fanout, no external fetch)
   if (!desktopOnlyMode) {
     const ntfy = cfg.ntfy ?? {};
     if (ntfy.enabled && ntfy.topic) {
       await send("ntfy", async () => {
-        const base = (ntfy.serverUrl ?? "https://ntfy.sh").replace(/\/$/, "");
         const priorityMap: Record<string, number> = { low: 2, normal: 3, high: 5 };
-        const headers: Record<string, string> = {
-          "Content-Type": "text/plain; charset=utf-8",
-          "Title": encodeURIComponent("Claude Notify"),
-          "Priority": String(priorityMap[priority] ?? 3),
-          "Tags": priority === "high" ? "rotating_light" : "bell",
-        };
-        if (ntfy.token) headers["Authorization"] = `Bearer ${ntfy.token}`;
-        const r = await fetch(`${base}/${encodeURIComponent(ntfy.topic)}`, {
-          method: "POST", headers, body: Buffer.from(message, "utf8"),
-        });
-        if (!r.ok) throw new Error(`ntfy ${r.status}: ${await r.text()}`);
+        const tags = priority === "high" ? "rotating_light" : "bell";
+        const subs = ntfySubscribers.get(ntfy.topic)?.size ?? 0;
+        if (subs === 0) throw new Error(`ntfy: no subscribers on topic '${ntfy.topic}' — is the app connected?`);
+        ntfyFanout(ntfy.topic, message, "Claude Notify", priorityMap[priority] ?? 3, tags);
       });
     }
   }

@@ -51,8 +51,6 @@ export interface EmailConfig {
 export interface NtfyConfig {
   enabled: boolean;
   topic: string;
-  serverUrl?: string;
-  token?: string;
 }
 
 export interface DiscordConfig {

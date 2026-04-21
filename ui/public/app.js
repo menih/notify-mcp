@@ -82,8 +82,9 @@ function populateForm() {
   const ntfy = config.ntfy ?? {};
   $("ntfy-enabled").checked = !!ntfy.enabled;
   $("ntfy-topic").value = ntfy.topic ?? "";
-  $("ntfy-server").value = ntfy.serverUrl ?? "https://ntfy.sh";
-  $("ntfy-token").value = ntfy.token ?? "";
+  const ntfyUrl = `${location.protocol}//${location.hostname}:${location.port || (location.protocol === 'https:' ? 443 : 80)}/ntfy`;
+  const urlEl = document.getElementById("ntfy-server-url");
+  if (urlEl) urlEl.textContent = ntfyUrl;
 
   // Discord
   const dc = config.discord ?? {};
@@ -159,8 +160,18 @@ function updateBadges() {
     sms.enabled && smsReady ? "Configured" : smsReady ? "Disabled" : sms.accountSid ? "Incomplete" : "Not configured");
 
   const ntfyC = config.ntfy ?? {};
-  setBadge("ntfy", ntfyC.enabled && ntfyC.topic ? "ok" : ntfyC.topic ? "warn" : "idle",
-    ntfyC.enabled && ntfyC.topic ? "Configured" : ntfyC.topic ? "Disabled" : "Not configured");
+  if (ntfyC.topic) {
+    fetch(`/ntfy/${encodeURIComponent(ntfyC.topic)}/subscribers`).then(r => r.json()).then(d => {
+      const count = d.subscribers ?? 0;
+      if (ntfyC.enabled) {
+        setBadge("ntfy", count > 0 ? "ok" : "warn", count > 0 ? `${count} subscriber${count===1?"":"s"}` : "No subscribers");
+      } else {
+        setBadge("ntfy", "idle", count > 0 ? `Disabled (${count} connected)` : "Disabled");
+      }
+    }).catch(() => setBadge("ntfy", ntfyC.enabled ? "warn" : "idle", ntfyC.enabled ? "Configured" : "Disabled"));
+  } else {
+    setBadge("ntfy", "idle", "Not configured");
+  }
 
   const dcC = config.discord ?? {};
   setBadge("discord", dcC.enabled && dcC.webhookUrl ? "ok" : dcC.webhookUrl ? "warn" : "idle",
@@ -349,8 +360,13 @@ async function saveSms() {
 }
 
 async function saveNtfy() {
-  await patch({ ntfy: { enabled: $("ntfy-enabled").checked, topic: $("ntfy-topic").value.trim(), serverUrl: $("ntfy-server").value.trim() || "https://ntfy.sh", token: $("ntfy-token").value.trim() } });
+  await patch({ ntfy: { enabled: $("ntfy-enabled").checked, topic: $("ntfy-topic").value.trim() } });
   clearDirty("ntfy");
+}
+
+function copyNtfyUrl() {
+  const url = document.getElementById("ntfy-server-url")?.textContent ?? "";
+  navigator.clipboard.writeText(url).then(() => toast("Server URL copied!", "ok")).catch(() => toast("Copy failed", "error"));
 }
 async function saveDiscord() {
   await patch({ discord: { enabled: $("discord-enabled").checked, webhookUrl: $("discord-webhook").value.trim(), username: $("discord-username").value.trim() || "Claude Notify" } });

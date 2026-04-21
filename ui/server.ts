@@ -398,10 +398,10 @@ app.post("/api/test/ntfy", async (_req, res) => {
   try {
     const base = (ntfy.serverUrl ?? "https://ntfy.sh").replace(/\/$/, "");
     const headers: Record<string, string> = {
-      "Content-Type": "text/plain", "Title": "Claude Notify — test", "Priority": "3", "Tags": "white_check_mark",
+      "Content-Type": "text/plain; charset=utf-8", "Title": encodeURIComponent("Claude Notify - test"), "Priority": "3", "Tags": "white_check_mark",
     };
     if (ntfy.token) headers["Authorization"] = `Bearer ${ntfy.token}`;
-    const r = await fetch(`${base}/${encodeURIComponent(ntfy.topic)}`, { method: "POST", headers, body: "Test from Claude Notify — ntfy is working!" });
+    const r = await fetch(`${base}/${encodeURIComponent(ntfy.topic)}`, { method: "POST", headers, body: Buffer.from("Test from Claude Notify - ntfy is working!", "utf8") });
     if (!r.ok) throw new Error(`ntfy ${r.status}: ${await r.text()}`);
     res.json({ ok: true, message: `ntfy notification sent to topic '${ntfy.topic}'` });
   } catch (err) { res.status(500).json({ error: String(err) }); }
@@ -821,14 +821,14 @@ async function sendNotification(message: string, priority: "low" | "normal" | "h
         const base = (ntfy.serverUrl ?? "https://ntfy.sh").replace(/\/$/, "");
         const priorityMap: Record<string, number> = { low: 2, normal: 3, high: 5 };
         const headers: Record<string, string> = {
-          "Content-Type": "text/plain",
-          "Title": "Claude Notify",
+          "Content-Type": "text/plain; charset=utf-8",
+          "Title": encodeURIComponent("Claude Notify"),
           "Priority": String(priorityMap[priority] ?? 3),
           "Tags": priority === "high" ? "rotating_light" : "bell",
         };
         if (ntfy.token) headers["Authorization"] = `Bearer ${ntfy.token}`;
         const r = await fetch(`${base}/${encodeURIComponent(ntfy.topic)}`, {
-          method: "POST", headers, body: message,
+          method: "POST", headers, body: Buffer.from(message, "utf8"),
         });
         if (!r.ok) throw new Error(`ntfy ${r.status}: ${await r.text()}`);
       });

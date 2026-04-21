@@ -1,6 +1,8 @@
 node_modules/
 dist/
 config.json
+package.json
+package-lock.json
 # Secrets — never commit
 .secrets
 .notify-mcp-secrets

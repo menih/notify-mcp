@@ -141,6 +141,7 @@ function mergePreservingSecrets(
 }
 
 const app = express();
+app.use((req, _res, next) => { console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} UA:${req.headers['user-agent']?.slice(0,60)}`); next(); });
 app.use(express.json());
 app.use(express.static(PUBLIC_DIR));
 

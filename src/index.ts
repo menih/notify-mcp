@@ -397,14 +397,20 @@ async function main(): Promise<void> {
   try { await httpInitialize(); }
   catch (err) { stderr(`[bridge] initial HTTP initialize failed: ${err instanceof Error ? err.message : String(err)}`); }
 
-  // Fire-and-forget: the stdio transport should be usable immediately; the
-  // push channel attaches as soon as the SSE handshake completes.
-  subscribeInbox().catch(err => stderr(`[bridge] inbox subscriber crashed: ${err instanceof Error ? err.message : String(err)}`));
-  startSessionKeepalive();
-
+  // Connect the stdio transport first so the server is ready to send
+  // notifications before we open the SSE push channel. Starting subscribeInbox
+  // before connect() creates a startup race: an SSE message that arrives
+  // between the fetch() completing and connect() completing would try to call
+  // server.notification() on a not-yet-connected transport, get "Not connected",
+  // and the message would be silently dropped.
   const transport = new StdioServerTransport();
   await server.connect(transport);
   stderr(`[bridge] stdio MCP bridge ready (tag=${SESSION_TAG ?? "none"}, port=${PORT})`);
+
+  // Fire-and-forget: start push channel and keepalive after the transport is
+  // live so notifications/claude/channel can be sent safely.
+  subscribeInbox().catch(err => stderr(`[bridge] inbox subscriber crashed: ${err instanceof Error ? err.message : String(err)}`));
+  startSessionKeepalive();
 }
 
 main().catch(err => {

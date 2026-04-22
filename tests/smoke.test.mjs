@@ -147,7 +147,7 @@ test("tools/list includes wait_for_inbox + the full core set", async () => {
   await c.rpc("notifications/initialized");
   const r = await c.rpc("tools/list");
   const names = r.body.result.tools.map(t => t.name).sort();
-  const expected = ["ask", "get_dnd_status", "get_idle_config", "get_idle_seconds", "notify", "poll", "wait_for_inbox"];
+  const expected = ["ask", "get_dnd_status", "get_idle_config", "get_idle_seconds", "notify", "poll", "update_instructions", "wait_for_inbox"];
   assert.deepEqual(names, expected);
 });
 
@@ -288,5 +288,5 @@ test("stdio bridge initializes, advertises claude/channel, lists tools", { timeo
   assert.ok(toolsResp, "no tools/list response");
   const names = toolsResp.result.tools.map(t => t.name).sort();
   // reply is the stdio-only channels return tool; others match the HTTP set.
-  assert.deepEqual(names, ["ask", "get_dnd_status", "get_idle_config", "get_idle_seconds", "notify", "poll", "reply", "wait_for_inbox"]);
+  assert.deepEqual(names, ["ask", "get_dnd_status", "get_idle_config", "get_idle_seconds", "notify", "poll", "reply", "update_instructions", "wait_for_inbox"]);
 });

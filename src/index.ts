@@ -162,6 +162,21 @@ async function httpInitialize(): Promise<void> {
   await httpRpc("notifications/initialized").catch(() => {});
 }
 
+// Periodically touch our /mcp session so the server's reaper doesn't prune it.
+// Without this, the bridge opens a session on startup, proxies tool calls
+// infrequently, and after 60s of idle the server wipes the session from its
+// sessions[] map — which makes Telegram's "routed to X agents" ack say
+// "no agents connected" even though the bridge is still alive and subscribed.
+function startSessionKeepalive(): void {
+  setInterval(async () => {
+    try {
+      await httpRpc("tools/list").catch(() => {});
+    } catch {
+      // best effort; next call will re-initialize via 404 retry path
+    }
+  }, 30_000);
+}
+
 // ── 3. Stdio MCP server — the thing Claude Code / Cursor attaches to ─────────
 
 const server = new McpServer(
@@ -385,6 +400,7 @@ async function main(): Promise<void> {
   // Fire-and-forget: the stdio transport should be usable immediately; the
   // push channel attaches as soon as the SSE handshake completes.
   subscribeInbox().catch(err => stderr(`[bridge] inbox subscriber crashed: ${err instanceof Error ? err.message : String(err)}`));
+  startSessionKeepalive();
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

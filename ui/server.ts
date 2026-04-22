@@ -1396,16 +1396,25 @@ async function startTelegramListener() {
             // that tag is connected, tell them plainly so they don't sit
             // waiting for a reply that can't come.
             const targets = sessionsMatchingTag(tag);
+            const sseCount = sseSubscribersForTag(tag);
+            // Stdio bridges deliver via SSE even when their /mcp session isn't
+            // tracked in sessions[] — treat either as "an agent is listening."
+            const anyoneListening = targets.length > 0 || sseCount > 0;
             let ackText: string;
-            if (tag && targets.length === 0) {
+            if (!anyoneListening && tag) {
               ackText = `📭 No session @${tag} connected. Message queued — next @${tag} to connect will pick it up.`;
-            } else if (targets.length === 0) {
+            } else if (!anyoneListening) {
               ackText = `📭 No agents connected. Message queued — next agent to connect will pick it up.`;
-            } else {
+            } else if (targets.length > 0) {
               const names = targets.map(sessionDisplay).join(", ");
               ackText = tag
                 ? `📬 Routed to ${names}. Waiting for them to reply.`
                 : `📬 Broadcast to ${targets.length} session(s): ${names}. Each should reply with its identity — respond to the one you want.`;
+            } else {
+              // SSE-only bridges — we know someone's listening but can't name them.
+              ackText = tag
+                ? `📬 Routed to 1 bridge @${tag}. Waiting for reply.`
+                : `📬 Broadcast to ${sseCount} bridge${sseCount === 1 ? "" : "s"}. Waiting for reply.`;
             }
             fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
               method: "POST", headers: { "Content-Type": "application/json" },
@@ -1968,6 +1977,21 @@ function listActiveSessions(): SessionMeta[] {
 function sessionsMatchingTag(tag: string | undefined): SessionMeta[] {
   if (!tag) return listActiveSessions();
   return listActiveSessions().filter(s => s.tag === tag);
+}
+
+// Count live SSE subscribers on /api/inbox/stream that would receive a message
+// with the given tag. Stdio-bridge clients subscribe via SSE but don't always
+// appear in sessions[] (their /mcp initialize session can get reaped while the
+// SSE stream stays alive). Without counting them, the Telegram ack lies with
+// "no agents connected" even when a bridge is actively listening.
+function sseSubscribersForTag(tag: string | undefined): number {
+  let n = 0;
+  for (const c of inboxStreamClients) {
+    if (c.res.destroyed || c.res.writableEnded || !c.res.writable) continue;
+    if (tag && c.tag !== tag) continue;
+    n++;
+  }
+  return n;
 }
 
 // Synchronous best-effort liveness check before we count sessions in an ack.

@@ -204,6 +204,15 @@ const server = new McpServer(
       "shorten it with '…' or a summary. NEVER mention delivery channels (Telegram, " +
       "SMS, desktop, etc.) or echo 'Sent via: …' — those are server internals. " +
       "Say 'notif' or 'notification' if you need to refer to the act of notifying.\n\n" +
+      "🚨 500-CHAR LIMIT — CHUNK, NEVER TRUNCATE 🚨\n" +
+      "The `notify` tool rejects bodies > 500 chars with `MCP error -32602: too_big`. " +
+      "When you have more to say than fits in 500 chars, you MUST split into MULTIPLE " +
+      "notify calls — do NOT silently shorten the body. Procedure: (1) decide what " +
+      "the user MUST see (every fact, file path, line number, recommendation); (2) if " +
+      "the body exceeds 500 chars, split into N chunks numbered '(1/N) ...', '(2/N) ...', " +
+      "each ≤ 500 chars including the prefix; (3) send all N chunks in order via separate " +
+      "notify calls and echo all N IN FULL in chat. NEVER respond to a `too_big` error by " +
+      "shortening to a single chunk — that loses information the user explicitly needs.\n\n" +
       "When the user asks you to remember a behavioral rule or change how you should act, " +
       "call `update_instructions` with the full updated rules block. This writes to CLAUDE.md " +
       "so the instructions persist across sessions and context compaction.",
@@ -227,7 +236,10 @@ async function proxyToolCall(name: string, args: Record<string, unknown>) {
 
 server.tool(
   "notify",
-  "Send a notification to the user. Delivery channels and DND are server-configured.",
+  "Send a notification to the user. Delivery channels and DND are server-configured. " +
+  "MAX 500 CHARS PER MESSAGE. If you have more to say, split into multiple notify " +
+  "calls with '(1/N) ...', '(2/N) ...' prefixes — never silently shorten on " +
+  "`too_big` error; that loses information the user needs.",
   {
     message: z.string().max(500),
     priority: z.enum(["low", "normal", "high"]).default("normal"),

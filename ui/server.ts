@@ -1254,9 +1254,8 @@ if (process.env.NOTIFY_MCP_TEST_ENDPOINTS === "1") {
         clearTimeout(w.timer);
         w.resolve([entry]);
       }
-    } else {
-      inboxQueue.push(entry);
     }
+    inboxQueue.push(entry);
     const sse = broadcastInbox(entry);
     writeInboxDrop(entry);
     log("·", "test-inject", `${text} (waiters=${waiters.length}, sse=${sse})`, tag);
@@ -1371,8 +1370,10 @@ async function startTelegramListener() {
             // Waiters (wait_for_inbox long-poll) get first crack — they were
             // already parked by an agent explicitly asking "wake me up when
             // something arrives." Hand the entry off as a tool *result*, which
-            // every MCP client actually surfaces. Only queue if no one was
-            // waiting, so the message isn't delivered twice.
+            // every MCP client actually surfaces. Always also queue so that
+            // polling-only sessions (e.g. VS Code native MCP without an SSE
+            // subscription) receive the message even when another session's
+            // wait_for_inbox waiter consumed it first.
             const waiters = takeWaitersFor(tag);
             if (waiters.length > 0) {
               for (const w of waiters) {
@@ -1380,9 +1381,8 @@ async function startTelegramListener() {
                 w.resolve([entry]);
               }
               log("·", "inbox", `${text} → ${waiters.length} long-poll waiter(s)`, tag);
-            } else {
-              inboxQueue.push(entry);
             }
+            inboxQueue.push(entry);
             writeInboxDrop(entry);
             const liveSseCount = broadcastInbox(entry);
             log("·", "inbox", `${text} (sse=${liveSseCount}, waiters=${waiters.length})`, tag);

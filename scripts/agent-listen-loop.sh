@@ -6,6 +6,7 @@ API_KEY="${NOTIFY_AGENT_KEY:-}"
 TAG="${NOTIFY_TAG:-}"
 TIMEOUT_SECONDS="${NOTIFY_WAIT_TIMEOUT_SECONDS:-50}"
 ON_MESSAGE_CMD="${NOTIFY_ON_MESSAGE_CMD:-}"
+RETRY_DELAY_SECONDS="${NOTIFY_RETRY_DELAY_SECONDS:-2}"
 
 build_url() {
   local url="$BASE_URL/api/agent/inbox/wait?timeout_seconds=$TIMEOUT_SECONDS"
@@ -17,7 +18,11 @@ build_url() {
 
 while true; do
   URL="$(build_url)"
-  RESP="$(curl -sS "$URL" ${API_KEY:+-H "x-notify-key: $API_KEY"})"
+  if ! RESP="$(curl -sS "$URL" ${API_KEY:+-H "x-notify-key: $API_KEY"})"; then
+    >&2 printf "[agent-listen-loop] wait request failed, retrying in %ss\n" "$RETRY_DELAY_SECONDS"
+    sleep "$RETRY_DELAY_SECONDS"
+    continue
+  fi
 
   if [[ "$RESP" == *'"empty":true'* ]]; then
     continue

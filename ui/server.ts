@@ -15,6 +15,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import { tmpdir } from "os";
+import { sendWithRouting } from "./messaging/notificationEngine.js";
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3737;
 const REDIRECT_URI = `http://localhost:${PORT}/auth/google/callback`;
@@ -806,202 +807,142 @@ app.get("/api/logs", (req, res) => {
 
 async function sendNotification(message: string, priority: "low" | "normal" | "high", client?: string) {
   const cfg = loadConfig();
-  const results: string[] = [];
-  const errors: string[] = [];
-
-  // DND check — priority=high always bypasses; anything else gets dropped during quiet hours.
-  // Email still goes through on "low" anyway (historical behavior: low=email-only).
-  if (priority !== "high" && isDndActive(cfg)) {
-    log("·", "dnd", `suppressed ${priority} notif (DND active)`, client);
-    return "DND active — notif suppressed (priority=high would still send)";
-  }
-
-  // Idle gating — when the user is actively at the keyboard, suppress *remote*
-  // channels (Telegram/SMS/email) for non-high priority. By default we still
-  // play the desktop sound+banner so the user knows *something* happened —
-  // they may have multiple agents running and this is a cheap local signal
-  // that doesn't blast their phone. Disable via idle.alwaysDesktopWhenActive=false.
-  // priority=high always bypasses idle entirely.
-  // Conversation bypass: if the user just messaged us from Telegram (within
-  // the TTL), they clearly want a reply over that channel, so skip idle gating.
   const inTelegramConvo = Date.now() - lastTelegramInboundAt < TELEGRAM_CONVO_TTL_MS;
-  let desktopOnlyMode = false;
+  const idleSecs = getOsIdleSeconds();
 
-  // If the web UI is open and the user is actively watching it, skip remote channels.
-  if (priority !== "high" && isUiActivelyOpen()) {
-    if (cfg.idle?.alwaysDesktopWhenActive !== false && cfg.desktop?.enabled) {
-      desktopOnlyMode = true;
-      log("·", "ui", `UI visible — desktop-only`, client);
-    }
-  }
-
-  if (!desktopOnlyMode && priority !== "high" && !inTelegramConvo && cfg.idle?.enabled !== false) {
-    const idleSecs = getOsIdleSeconds();
-    const threshold = cfg.idle?.thresholdSeconds ?? 120;
-    const userIsActive = idleSecs >= 0 && idleSecs < threshold;
-    if (userIsActive) {
-      if (cfg.idle?.alwaysDesktopWhenActive !== false && cfg.desktop?.enabled) {
-        desktopOnlyMode = true;
-        log("·", "idle", `user active (${idleSecs}s < ${threshold}s) — desktop-only`, client);
-      } else {
-        log("·", "idle", `user active (${idleSecs}s < ${threshold}s) — suppressed`, client);
-        return "Idle gated — user is active, notif suppressed (priority=high would still send)";
-      }
-    }
-  } else if (priority !== "high" && inTelegramConvo) {
-    log("·", "idle", `bypassed (telegram convo active)`, client);
-  }
-
-  const send = async (name: string, fn: () => Promise<void>) => {
-    try {
-      await fn();
-      results.push(name);
-      log("→", name, message, client);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`${name}: ${msg}`);
-      log("→", name, `ERROR: ${msg}`, client);
-    }
-  };
-
-  if (priority !== "low") {
-    if (cfg.desktop?.enabled) {
-      const wantSound = cfg.desktop?.sound !== false;
-      // On Windows, SnoreToast's per-app sound is often muted by the user's
-      // Windows notification settings — fire a PowerShell beep alongside the
-      // toast so the audible cue is reliable. macOS/Linux: trust the OS.
-      if (wantSound && process.platform === "win32") {
-        // [console]::beep uses the PC speaker (motherboard buzzer), which
-        // modern laptops/desktops don't have — silent on most machines.
-        // SystemSounds.Asterisk plays through the actual sound card via
-        // the Windows notification sound, audible on every machine.
-        spawn("powershell", [
-          "-NoProfile", "-Command",
-          "Add-Type -AssemblyName System.Windows.Forms; [System.Media.SystemSounds]::Asterisk.Play(); Start-Sleep -Milliseconds 600",
-        ], { windowsHide: true, stdio: "ignore" });
-      }
-      const soundOpt = wantSound && process.platform !== "win32";
-      if (cfg.desktop?.tts) {
-        const voice = cfg.desktop?.ttsVoice ?? "en-US-AndrewMultilingualNeural";
-        speakText(message, voice).catch((err) =>
-          log("→", "tts", `ERROR: ${err instanceof Error ? err.message : String(err)}`, client));
-      }
-      await send("desktop", () => new Promise<void>((res, rej) =>
-        notifier.notify({ title: "Claude Notify", message, sound: soundOpt },
-          (err) => err ? rej(err) : res())));
-    }
-    if (!desktopOnlyMode && cfg.telegram?.enabled && cfg.telegram.token && cfg.telegram.chatId) {
-      await send("telegram", async () => {
+  const result = await sendWithRouting({
+    message,
+    priority,
+    policy: {
+      idleEnabled: cfg.idle?.enabled !== false,
+      idleThresholdSeconds: cfg.idle?.thresholdSeconds ?? 120,
+      alwaysDesktopWhenActive: cfg.idle?.alwaysDesktopWhenActive !== false,
+      dndActive: isDndActive(cfg),
+    },
+    ctx: {
+      inTelegramConversation: inTelegramConvo,
+      uiActive: isUiActivelyOpen(),
+      idleSeconds: idleSecs,
+    },
+    enableDesktop: !!cfg.desktop?.enabled,
+    enableTelegram: !!(cfg.telegram?.enabled && cfg.telegram.token && cfg.telegram.chatId),
+    enableEmail: !!(cfg.email?.enabled && cfg.email.to),
+    enableSms: !!(cfg.sms?.enabled && cfg.sms.accountSid && cfg.sms.authToken && cfg.sms.from && cfg.sms.to),
+    enableNtfy: !!(cfg.ntfy?.enabled && cfg.ntfy.topic),
+    enableDiscord: !!(cfg.discord?.enabled && cfg.discord.webhookUrl),
+    enableSlack: !!(cfg.slack?.enabled && cfg.slack.webhookUrl),
+    enableTeams: !!(cfg.teams?.enabled && cfg.teams.webhookUrl),
+    senders: {
+      desktop: async () => {
+        const wantSound = cfg.desktop?.sound !== false;
+        if (wantSound && process.platform === "win32") {
+          spawn("powershell", [
+            "-NoProfile", "-Command",
+            "Add-Type -AssemblyName System.Windows.Forms; [System.Media.SystemSounds]::Asterisk.Play(); Start-Sleep -Milliseconds 600",
+          ], { windowsHide: true, stdio: "ignore" });
+        }
+        const soundOpt = wantSound && process.platform !== "win32";
+        if (cfg.desktop?.tts) {
+          const voice = cfg.desktop?.ttsVoice ?? "en-US-AndrewMultilingualNeural";
+          speakText(message, voice).catch((err) =>
+            log("→", "tts", `ERROR: ${err instanceof Error ? err.message : String(err)}`, client));
+        }
+        await new Promise<void>((resolve, reject) => {
+          notifier.notify({ title: "Claude Notify", message, sound: soundOpt }, (err) => {
+            if (err) reject(err);
+            else resolve();
+          });
+        });
+      },
+      telegram: async () => {
         const body: Record<string, any> = { chat_id: cfg.telegram.chatId, text: message };
         if (lastUserMessageId) body.reply_to_message_id = lastUserMessageId;
         const r = await fetch(`https://api.telegram.org/bot${cfg.telegram.token}/sendMessage`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
         if (!r.ok) throw new Error(await r.text());
-      });
-    }
-  }
-
-  if (priority === "high") {
-    const sms = cfg.sms ?? {};
-    if (sms.enabled && sms.accountSid && sms.authToken && sms.from && sms.to) {
-      await send("sms", async () => {
-        const client = twilio(sms.accountSid, sms.authToken);
-        await client.messages.create({ body: message, from: sms.from, to: sms.to });
-      });
-    }
-  }
-
-  const email = cfg.email ?? {};
-  if (!desktopOnlyMode && email.enabled && email.to) {
-    await send("email", async () => {
-      let transport;
-      if (email.refreshToken && email.clientId && email.clientSecret) {
-        transport = nodemailer.createTransport({
-          service: "gmail", auth: { type: "OAuth2", user: email.connectedEmail ?? email.to,
-            clientId: email.clientId, clientSecret: email.clientSecret,
-            refreshToken: email.refreshToken, accessToken: email.accessToken },
+      },
+      sms: async () => {
+        const smsClient = twilio(cfg.sms.accountSid, cfg.sms.authToken);
+        await smsClient.messages.create({ body: message, from: cfg.sms.from, to: cfg.sms.to });
+      },
+      email: async () => {
+        const email = cfg.email;
+        let transport;
+        if (email.refreshToken && email.clientId && email.clientSecret) {
+          transport = nodemailer.createTransport({
+            service: "gmail",
+            auth: {
+              type: "OAuth2",
+              user: email.connectedEmail ?? email.to,
+              clientId: email.clientId,
+              clientSecret: email.clientSecret,
+              refreshToken: email.refreshToken,
+              accessToken: email.accessToken,
+            },
+          });
+        } else if (email.host && email.user && email.pass) {
+          transport = nodemailer.createTransport({
+            host: email.host,
+            port: email.port ?? 587,
+            secure: email.secure ?? false,
+            auth: { user: email.user, pass: email.pass },
+          });
+        } else {
+          return;
+        }
+        await transport.sendMail({
+          from: email.connectedEmail ?? email.user ?? email.to,
+          to: email.to,
+          subject: "Claude Notify",
+          text: message,
         });
-      } else if (email.host && email.user && email.pass) {
-        transport = nodemailer.createTransport({
-          host: email.host, port: email.port ?? 587, secure: email.secure ?? false,
-          auth: { user: email.user, pass: email.pass },
-        });
-      } else return;
-      await transport.sendMail({ from: email.connectedEmail ?? email.user ?? email.to,
-        to: email.to, subject: "Claude Notify", text: message });
-    });
-  }
-
-  // ntfy (built-in server — direct fanout, no external fetch)
-  if (!desktopOnlyMode) {
-    const ntfy = cfg.ntfy ?? {};
-    if (ntfy.enabled && ntfy.topic) {
-      await send("ntfy", async () => {
+      },
+      ntfy: async (_text, prio) => {
         const priorityMap: Record<string, number> = { low: 2, normal: 3, high: 5 };
-        const tags = priority === "high" ? "rotating_light" : "bell";
-        const subs = ntfySubscribers.get(ntfy.topic)?.size ?? 0;
-        if (subs === 0) throw new Error(`ntfy: no subscribers on topic '${ntfy.topic}' — is the app connected?`);
-        ntfyFanout(ntfy.topic, message, "Claude Notify", priorityMap[priority] ?? 3, tags);
-      });
-    }
-  }
-
-  // Discord
-  if (!desktopOnlyMode) {
-    const dc = cfg.discord ?? {};
-    if (dc.enabled && dc.webhookUrl) {
-      await send("discord", async () => {
+        const tags = prio === "high" ? "rotating_light" : "bell";
+        const subs = ntfySubscribers.get(cfg.ntfy.topic)?.size ?? 0;
+        if (subs === 0) throw new Error(`ntfy: no subscribers on topic '${cfg.ntfy.topic}'`);
+        ntfyFanout(cfg.ntfy.topic, message, "Claude Notify", priorityMap[prio] ?? 3, tags);
+      },
+      discord: async (_text, prio) => {
         const colorMap: Record<string, number> = { low: 0x6b7280, normal: 0x7c6dfa, high: 0xef4444 };
-        const r = await fetch(dc.webhookUrl, {
+        const r = await fetch(cfg.discord.webhookUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            username: dc.username ?? "Claude Notify",
+            username: cfg.discord.username ?? "Claude Notify",
             embeds: [{
               title: "Claude Notify",
               description: message,
-              color: colorMap[priority] ?? colorMap.normal,
+              color: colorMap[prio] ?? colorMap.normal,
               timestamp: new Date().toISOString(),
             }],
           }),
         });
         if (!r.ok) throw new Error(`Discord ${r.status}: ${await r.text()}`);
-      });
-    }
-  }
-
-  // Slack
-  if (!desktopOnlyMode) {
-    const sl = cfg.slack ?? {};
-    if (sl.enabled && sl.webhookUrl) {
-      await send("slack", async () => {
+      },
+      slack: async (_text, prio) => {
         const emojiMap: Record<string, string> = { low: "ℹ️", normal: "🔔", high: "🚨" };
-        const emoji = emojiMap[priority] ?? emojiMap.normal;
-        const r = await fetch(sl.webhookUrl, {
+        const emoji = emojiMap[prio] ?? emojiMap.normal;
+        const r = await fetch(cfg.slack.webhookUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             text: `${emoji} *Claude Notify*`,
             blocks: [
               { type: "section", text: { type: "mrkdwn", text: `${emoji} *Claude Notify*\n${message}` } },
-              { type: "context", elements: [{ type: "mrkdwn", text: `Priority: ${priority}` }] },
+              { type: "context", elements: [{ type: "mrkdwn", text: `Priority: ${prio}` }] },
             ],
           }),
         });
         if (!r.ok) throw new Error(`Slack ${r.status}: ${await r.text()}`);
-      });
-    }
-  }
-
-  // Teams
-  if (!desktopOnlyMode) {
-    const tm = cfg.teams ?? {};
-    if (tm.enabled && tm.webhookUrl) {
-      await send("teams", async () => {
+      },
+      teams: async (_text, prio) => {
         const colorMap: Record<string, string> = { low: "Default", normal: "Accent", high: "Attention" };
-        const r = await fetch(tm.webhookUrl, {
+        const r = await fetch(cfg.teams.webhookUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1011,24 +952,37 @@ async function sendNotification(message: string, priority: "low" | "normal" | "h
               contentUrl: null,
               content: {
                 $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
-                type: "AdaptiveCard", version: "1.2",
+                type: "AdaptiveCard",
+                version: "1.2",
                 body: [
-                  { type: "TextBlock", size: "Medium", weight: "Bolder", text: "Claude Notify", color: colorMap[priority] ?? "Default" },
+                  { type: "TextBlock", size: "Medium", weight: "Bolder", text: "Claude Notify", color: colorMap[prio] ?? "Default" },
                   { type: "TextBlock", text: message, wrap: true },
-                  { type: "TextBlock", text: `Priority: ${priority}`, isSubtle: true, size: "Small" },
+                  { type: "TextBlock", text: `Priority: ${prio}`, isSubtle: true, size: "Small" },
                 ],
               },
             }],
           }),
         });
         if (!r.ok) throw new Error(`Teams ${r.status}: ${await r.text()}`);
-      });
-    }
+      },
+    },
+  });
+
+  if (result.suppressedReason) {
+    log("·", "notify", `suppressed (${result.suppressedReason})`, client);
+    return result.suppressedReason;
+  }
+
+  for (const delivered of result.delivered) {
+    log("→", delivered, message, client);
+  }
+  for (const err of result.errors) {
+    log("→", "notify", `ERROR: ${err}`, client);
   }
 
   return [
-    results.length ? `Sent via: ${results.join(", ")}` : null,
-    errors.length ? `Errors: ${errors.join("; ")}` : null,
+    result.delivered.length ? `Sent via: ${result.delivered.join(", ")}` : null,
+    result.errors.length ? `Errors: ${result.errors.join("; ")}` : null,
   ].filter(Boolean).join(" | ") || "No channels delivered";
 }
 

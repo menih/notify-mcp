@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { randomUUID } from "crypto";
+import { randomUUID, createHmac, timingSafeEqual } from "crypto";
 import express from "express";
 import { google } from "googleapis";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "fs";
@@ -25,6 +25,8 @@ const PUBLIC_DIR = join(fileURLToPath(new URL("../../ui/public", import.meta.url
 const CONFIG_DIR = join(homedir(), ".notify-mcp");
 const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 const ADC_PATH = join(homedir(), ".config", "gcloud", "application_default_credentials.json");
+const AGENT_API_KEY = (process.env.NOTIFY_AGENT_KEY ?? "").trim();
+const SLACK_SIGNING_SECRET = (process.env.SLACK_SIGNING_SECRET ?? "").trim();
 
 function defaultConfig() {
   return {
@@ -143,8 +145,39 @@ function mergePreservingSecrets(
 
 const app = express();
 app.use((req, _res, next) => { console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} UA:${req.headers['user-agent']?.slice(0,60)}`); next(); });
-app.use(express.json());
+app.use(express.json({
+  verify: (req, _res, buf) => {
+    (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+  },
+}));
 app.use(express.static(PUBLIC_DIR));
+
+function requireAgentAuth(req: express.Request, res: express.Response): boolean {
+  if (!AGENT_API_KEY) return true;
+  const got = String(req.headers["x-notify-key"] ?? "").trim();
+  if (!got || got !== AGENT_API_KEY) {
+    res.status(401).json({ error: "unauthorized" });
+    return false;
+  }
+  return true;
+}
+
+function verifySlackSignature(req: express.Request): boolean {
+  if (!SLACK_SIGNING_SECRET) return true;
+  const sig = String(req.headers["x-slack-signature"] ?? "");
+  const ts = String(req.headers["x-slack-request-timestamp"] ?? "");
+  if (!sig || !ts) return false;
+  const tsNum = parseInt(ts, 10);
+  if (!Number.isFinite(tsNum)) return false;
+  if (Math.abs(Math.floor(Date.now() / 1000) - tsNum) > 300) return false;
+  const rawBody = ((req as express.Request & { rawBody?: Buffer }).rawBody ?? Buffer.from("{}")).toString("utf8");
+  const base = `v0:${ts}:${rawBody}`;
+  const expected = `v0=${createHmac("sha256", SLACK_SIGNING_SECRET).update(base).digest("hex")}`;
+  const a = Buffer.from(expected, "utf8");
+  const b = Buffer.from(sig, "utf8");
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
 
 // ── Built-in ntfy server ──────────────────────────────────────────────────────
 // Implements the ntfy publish/subscribe protocol internally so the ntfy mobile
@@ -1192,6 +1225,22 @@ function broadcastInbox(entry: InboxEntry): number {
   return delivered;
 }
 
+function ingestInboxEntry(entry: InboxEntry, source: string): { waiters: number; sse: number } {
+  const waiters = takeWaitersFor(entry.tag);
+  if (waiters.length > 0) {
+    for (const w of waiters) {
+      clearTimeout(w.timer);
+      w.resolve([entry]);
+    }
+  } else {
+    inboxQueue.push(entry);
+  }
+  const sse = broadcastInbox(entry);
+  writeInboxDrop(entry);
+  log("·", "inbox", `${source}: ${entry.text} (sse=${sse}, waiters=${waiters.length})`, entry.tag);
+  return { waiters: waiters.length, sse };
+}
+
 // Test-only: inject a fake inbox entry exactly as the Telegram listener would.
 // Gated behind NOTIFY_MCP_TEST_ENDPOINTS=1 so it's never exposed in a normal
 // production run. Used by the test suite to drive wait_for_inbox wake-up and
@@ -1202,19 +1251,8 @@ if (process.env.NOTIFY_MCP_TEST_ENDPOINTS === "1") {
     const tag = req.body?.tag ? String(req.body.tag).toLowerCase() : undefined;
     if (!text) { res.status(400).json({ error: "text required" }); return; }
     const entry: InboxEntry = { text, ts: new Date().toISOString(), tag };
-    const waiters = takeWaitersFor(tag);
-    if (waiters.length > 0) {
-      for (const w of waiters) {
-        clearTimeout(w.timer);
-        w.resolve([entry]);
-      }
-    } else {
-      inboxQueue.push(entry);
-    }
-    const sse = broadcastInbox(entry);
-    writeInboxDrop(entry);
-    log("·", "test-inject", `${text} (waiters=${waiters.length}, sse=${sse})`, tag);
-    res.json({ injected: true, waiters: waiters.length, sse });
+    const out = ingestInboxEntry(entry, "test-inject");
+    res.json({ injected: true, waiters: out.waiters, sse: out.sse });
   });
   log("·", "test", "NOTIFY_MCP_TEST_ENDPOINTS=1 — /__test__/inject-inbox enabled");
 }
@@ -1238,6 +1276,112 @@ app.get("/api/inbox/stream", (req, res) => {
     clearInterval(keepAlive);
     inboxStreamClients.delete(client);
   });
+});
+
+// ── Non-MCP automation API ───────────────────────────────────────────────────
+// These endpoints let an agent script use plain HTTP (no MCP transport) for
+// notify + unsolicited inbox handling.
+
+app.post("/api/agent/notify", async (req, res) => {
+  if (!requireAgentAuth(req, res)) return;
+  const message = String(req.body?.message ?? "").trim();
+  const priority = (String(req.body?.priority ?? "normal") as "low" | "normal" | "high");
+  if (!message) { res.status(400).json({ error: "message required" }); return; }
+  if (!["low", "normal", "high"].includes(priority)) { res.status(400).json({ error: "invalid priority" }); return; }
+  try {
+    const out = await sendNotification(message, priority, "agent-http");
+    res.json({ ok: true, result: out });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.get("/api/agent/inbox/poll", (req, res) => {
+  if (!requireAgentAuth(req, res)) return;
+  const tag = typeof req.query.tag === "string" ? req.query.tag.toLowerCase() : undefined;
+  const messages = drainInboxFor(tag);
+  res.json({ ok: true, messages });
+});
+
+app.get("/api/agent/inbox/wait", async (req, res) => {
+  if (!requireAgentAuth(req, res)) return;
+  const tag = typeof req.query.tag === "string" ? req.query.tag.toLowerCase() : undefined;
+  const timeoutSecondsRaw = parseInt(String(req.query.timeout_seconds ?? "50"), 10);
+  const timeoutSeconds = Number.isFinite(timeoutSecondsRaw) ? Math.max(5, Math.min(55, timeoutSecondsRaw)) : 50;
+
+  const queued = drainInboxFor(tag);
+  if (queued.length > 0) {
+    res.json({ ok: true, messages: queued, empty: false });
+    return;
+  }
+
+  const token = randomUUID();
+  const entries = await new Promise<InboxEntry[]>((resolve) => {
+    const timer = setTimeout(() => {
+      inboxWaiters.delete(token);
+      resolve([]);
+    }, timeoutSeconds * 1000);
+    inboxWaiters.set(token, { resolve, timer, tag });
+  });
+  res.json({ ok: true, messages: entries, empty: entries.length === 0 });
+});
+
+app.post("/api/agent/inbox/inject", (req, res) => {
+  if (!requireAgentAuth(req, res)) return;
+  const text = String(req.body?.text ?? "").trim();
+  if (!text) { res.status(400).json({ error: "text required" }); return; }
+  const tag = req.body?.tag ? String(req.body.tag).toLowerCase() : undefined;
+  const entry: InboxEntry = { text, ts: new Date().toISOString(), tag };
+  const out = ingestInboxEntry(entry, "agent-inject");
+  res.json({ ok: true, waiters: out.waiters, sse: out.sse });
+});
+
+// Slack Events API (inbound). Requires configuring your Slack app with an
+// Event Request URL: POST /api/slack/events.
+app.post("/api/slack/events", (req, res) => {
+  if (!verifySlackSignature(req)) {
+    res.status(401).json({ error: "bad slack signature" });
+    return;
+  }
+
+  const body = req.body ?? {};
+  if (body.type === "url_verification") {
+    res.json({ challenge: body.challenge });
+    return;
+  }
+
+  if (body.type !== "event_callback") {
+    res.json({ ok: true, ignored: true });
+    return;
+  }
+
+  const event = body.event ?? {};
+  const subtype = typeof event.subtype === "string" ? event.subtype : "";
+  if (event.type !== "message" || subtype || event.bot_id || !event.text) {
+    res.json({ ok: true, ignored: true });
+    return;
+  }
+
+  const parsed = parseTag(String(event.text));
+  const candidate = [...pendingAsks.entries()].find(([, p]) => (parsed.tag ? p.tag === parsed.tag : true));
+  if (candidate) {
+    const [id, pending] = candidate;
+    clearTimeout(pending.timer);
+    pendingAsks.delete(id);
+    log("←", "ask:reply", parsed.text, parsed.tag);
+    pending.resolve(parsed.text);
+    res.json({ ok: true, routed: "ask" });
+    return;
+  }
+
+  const ts = event.ts ? new Date(Number(event.ts) * 1000).toISOString() : new Date().toISOString();
+  const entry: InboxEntry = {
+    text: parsed.text,
+    tag: parsed.tag,
+    ts,
+  };
+  const out = ingestInboxEntry(entry, "slack");
+  res.json({ ok: true, routed: "inbox", waiters: out.waiters, sse: out.sse });
 });
 
 async function initTgOffset(token: string): Promise<number> {

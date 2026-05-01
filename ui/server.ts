@@ -150,6 +150,13 @@ app.use(express.json({
     (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(buf);
   },
 }));
+app.use(express.urlencoded({
+  extended: true,
+  verify: (req, _res, buf) => {
+    const r = req as express.Request & { rawBody?: Buffer };
+    if (!r.rawBody) r.rawBody = Buffer.from(buf);
+  },
+}));
 app.use(express.static(PUBLIC_DIR));
 
 function requireAgentAuth(req: express.Request, res: express.Response): boolean {
@@ -1339,26 +1346,61 @@ app.post("/api/agent/inbox/inject", (req, res) => {
 // Slack Events API (inbound). Requires configuring your Slack app with an
 // Event Request URL: POST /api/slack/events.
 app.post("/api/slack/events", (req, res) => {
+  let body: any = req.body ?? {};
+  if (body?.payload && typeof body.payload === "string") {
+    try {
+      body = JSON.parse(body.payload);
+    } catch {
+      // keep original body if payload isn't valid JSON
+    }
+  }
+  if ((!body || Object.keys(body).length === 0) && (req as express.Request & { rawBody?: Buffer }).rawBody) {
+    const raw = ((req as express.Request & { rawBody?: Buffer }).rawBody ?? Buffer.from("{}")).toString("utf8");
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      body = req.body ?? {};
+    }
+  }
+
+  // Slack URL verification can arrive before full event wiring, and some
+  // intermediaries/proxies send this as form data. Respond immediately when
+  // a challenge value is present so the URL can be saved.
+  const challenge = body?.challenge ?? (typeof req.query.challenge === "string" ? req.query.challenge : undefined);
+  if (challenge) {
+    log("·", "slack", "url_verification challenge received");
+    res.status(200).json({ challenge });
+    return;
+  }
+
   if (!verifySlackSignature(req)) {
+    log("·", "slack", "rejected: bad signature");
     res.status(401).json({ error: "bad slack signature" });
     return;
   }
 
-  const body = req.body ?? {};
-  if (body.type === "url_verification") {
-    res.json({ challenge: body.challenge });
-    return;
-  }
+  const envelopeType = String(body?.type ?? "unknown");
+  const event = body?.event ?? {};
+  const eventType = String(event?.type ?? "none");
+  const subtype = typeof event?.subtype === "string" ? event.subtype : "";
+  const channel = String(event?.channel ?? body?.channel_id ?? "none");
+  log("·", "slack", `event: envelope=${envelopeType}, type=${eventType}, subtype=${subtype || "none"}, channel=${channel}`);
 
   if (body.type !== "event_callback") {
-    res.json({ ok: true, ignored: true });
+    res.json({ ok: true, ignored: true, reason: `unsupported envelope type: ${envelopeType}` });
     return;
   }
 
-  const event = body.event ?? {};
-  const subtype = typeof event.subtype === "string" ? event.subtype : "";
+  const ignoreReasons: string[] = [];
+  if (event.type !== "message") ignoreReasons.push(`event.type=${eventType}`);
+  if (subtype) ignoreReasons.push(`subtype=${subtype}`);
+  if (event.bot_id) ignoreReasons.push("bot message");
+  if (!event.text) ignoreReasons.push("missing text");
+
   if (event.type !== "message" || subtype || event.bot_id || !event.text) {
-    res.json({ ok: true, ignored: true });
+    const reason = ignoreReasons.join(", ") || "filtered";
+    log("·", "slack", `ignored: ${reason}`);
+    res.json({ ok: true, ignored: true, reason });
     return;
   }
 

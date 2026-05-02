@@ -11,9 +11,6 @@ import open from "open";
 import notifier from "node-notifier";
 import nodemailer from "nodemailer";
 import twilio from "twilio";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { z } from "zod";
 import { tmpdir } from "os";
 import { sendWithRouting } from "./messaging/notificationEngine.js";
 
@@ -808,28 +805,19 @@ function log(direction: "→" | "←" | "·", channel: string, text: string, cli
 }
 
 app.get("/api/sessions", (_req, res) => {
-  const list = listActiveSessions().map(s => ({
-    clientId: s.clientId,
-    tag: s.tag,
-    clientName: s.clientName,
-    clientVersion: s.clientVersion,
-    workspaceName: s.workspaceName,
-    host: s.host,
-    connectedAt: s.connectedAt,
-    lastSeen: s.lastSeen,
+  const now = Date.now();
+  const list = [...inboxStreamClients].map((c, i) => ({
+    clientId: `sse-${i + 1}`,
+    tag: c.tag,
+    transport: "sse",
+    connectedAt: now,
+    lastSeen: now,
   }));
   res.json({ sessions: list });
 });
 
-app.delete("/api/sessions/:clientId", (req, res) => {
-  const { clientId } = req.params;
-  const entry = Object.entries(sessions).find(([, m]) => m.clientId === clientId);
-  if (!entry) { res.status(404).json({ error: "not found" }); return; }
-  const [sessionId] = entry;
-  try { httpTransports[sessionId]?.close(); } catch { /* ignore */ }
-  delete httpTransports[sessionId];
-  delete sessions[sessionId];
-  res.json({ ok: true });
+app.delete("/api/sessions/:clientId", (_req, res) => {
+  res.status(410).json({ error: "session_disconnect_unsupported", message: "HTTP mode does not support remote disconnect." });
 });
 
 app.get("/api/logs", (req, res) => {
@@ -1526,35 +1514,17 @@ async function startTelegramListener() {
             writeInboxDrop(entry);
             const liveSseCount = broadcastInbox(entry);
             log("·", "inbox", `${text} (sse=${liveSseCount}, waiters=${waiters.length})`, tag);
-            // Before building the ack, prune sessions whose transport stream
-            // is dead or whose heartbeat has lapsed. Without this the ack
-            // cheerfully claims "broadcast to 3 sessions" when 2 of them are
-            // closed VS Code windows — which is exactly what prompted this fix.
-            pruneDeadSessions();
-            // Build an ack that names the active sessions the user's message
-            // is being routed to. If the user tagged it and no session with
-            // that tag is connected, tell them plainly so they don't sit
-            // waiting for a reply that can't come.
-            const targets = sessionsMatchingTag(tag);
             const sseCount = sseSubscribersForTag(tag);
-            // Stdio bridges deliver via SSE even when their /mcp session isn't
-            // tracked in sessions[] — treat either as "an agent is listening."
-            const anyoneListening = targets.length > 0 || sseCount > 0;
+            const anyoneListening = sseCount > 0 || waiters.length > 0;
             let ackText: string;
             if (!anyoneListening && tag) {
               ackText = `📭 No session @${tag} connected. Message queued — next @${tag} to connect will pick it up.`;
             } else if (!anyoneListening) {
               ackText = `📭 No agents connected. Message queued — next agent to connect will pick it up.`;
-            } else if (targets.length > 0) {
-              const names = targets.map(sessionDisplay).join(", ");
-              ackText = tag
-                ? `📬 Routed to ${names}. Waiting for them to reply.`
-                : `📬 Broadcast to ${targets.length} session(s): ${names}. Each should reply with its identity — respond to the one you want.`;
             } else {
-              // SSE-only bridges — we know someone's listening but can't name them.
               ackText = tag
-                ? `📬 Routed to 1 bridge @${tag}. Waiting for reply.`
-                : `📬 Broadcast to ${sseCount} bridge${sseCount === 1 ? "" : "s"}. Waiting for reply.`;
+                ? `📬 Routed to @${tag}. Waiting for reply.`
+                : `📬 Broadcast to ${sseCount} listener${sseCount === 1 ? "" : "s"}. Waiting for reply.`;
             }
             fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
               method: "POST", headers: { "Content-Type": "application/json" },
@@ -2169,6 +2139,13 @@ function sessionDisplay(s: SessionMeta): string {
 }
 
 app.all("/mcp", async (req, res) => {
+  if (!ENABLE_MCP) {
+    res.status(404).json({
+      error: "mcp_disabled",
+      message: "MCP transport is disabled. Set ENABLE_MCP=1 to enable /mcp.",
+    });
+    return;
+  }
   console.log("[debug-url]", req.method, req.url, "query:", JSON.stringify(req.query), "ua:", req.headers["user-agent"]);
   const existingSessionId = req.headers["mcp-session-id"] as string | undefined;
 
@@ -2307,7 +2284,11 @@ function trackReconnect(clientId: string): void {
 const httpServer = app.listen(PORT, "0.0.0.0", () => {
   const ip = getLocalIp();
   console.log(`\n  Claude Notify config UI  → http://localhost:${PORT}`);
-  console.log(`  MCP endpoint (remote)    → http://${ip}:${PORT}/mcp\n`);
+  if (ENABLE_MCP) {
+    console.log(`  MCP endpoint (remote)    → http://${ip}:${PORT}/mcp\n`);
+  } else {
+    console.log("  MCP endpoint (remote)    → disabled (set ENABLE_MCP=1 to enable)\n");
+  }
   startTelegramListener();
   open(`http://localhost:${PORT}`).catch(() => {});
 });

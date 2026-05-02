@@ -6,9 +6,9 @@
 
 <p align="center">
   <em>Reach me on any channel. Ask me anything. Get out of my way when I'm busy.</em><br>
-  An MCP server that gives AI agents (Claude, Cursor, etc.) a single
-  <code>notify</code> / <code>ask</code> interface — desktop, Telegram, SMS, email —
-  with two-way replies, idle gating, and Do Not Disturb.
+  HTTP-first notification/control server with optional MCP compatibility for AI agents
+  (Claude, Copilot, Cursor, etc.): desktop, Telegram, Slack, SMS, email,
+  two-way replies, idle gating, and Do Not Disturb.
 </p>
 
 <p align="center">
@@ -38,6 +38,20 @@ You step away from your machine and the AI is still working. **It needs to**:
 ## Quick start
 
 ```bash
+npx omni-notify-ui
+```
+
+This starts the HTTP/UI server on `http://localhost:3737`.
+
+MCP is optional. To enable the `/mcp` endpoint, start with:
+
+```bash
+ENABLE_MCP=1 npx omni-notify-ui
+```
+
+Or use the stdio bridge (which auto-spawns the UI with MCP enabled):
+
+```bash
 npx omni-notify-mcp
 ```
 
@@ -52,12 +66,6 @@ Add to your MCP config (`~/.claude.json`, `.vscode/mcp.json`, `claude_desktop_co
     }
   }
 }
-```
-
-Then run the config UI to wire up your channels:
-
-```bash
-npx omni-notify-ui
 ```
 
 Open <http://localhost:3737>, toggle the channels you want, and hit Save. The MCP server picks up changes immediately — no restart.

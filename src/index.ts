@@ -46,9 +46,9 @@ async function serverIsUp(): Promise<boolean> {
       body: JSON.stringify({ jsonrpc: "2.0", id: 0, method: "initialize", params: {} }),
       signal: AbortSignal.timeout(1500),
     });
-    // Any HTTP response (including 400/406 from malformed init) means the
-    // server is alive and speaking HTTP. Real "down" surfaces as a throw.
-    return r.status > 0;
+    // The bridge requires an active /mcp endpoint.
+    // 404 specifically means UI may be up but MCP transport is disabled.
+    return r.status > 0 && r.status !== 404;
   } catch {
     return false;
   }
@@ -71,7 +71,7 @@ function spawnUiServerIfNeeded(): void {
   const child = spawn(process.execPath, [uiPath], {
     detached: true,
     stdio: "ignore",
-    env: { ...process.env, PORT: String(PORT) },
+    env: { ...process.env, PORT: String(PORT), ENABLE_MCP: "1" },
   });
   child.unref();
 }

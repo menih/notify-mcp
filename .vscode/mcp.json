@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "notify": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "omni-notify-mcp"]
+    }
+  }
+}

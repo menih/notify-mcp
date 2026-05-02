@@ -40,7 +40,7 @@
       <div class="tabs">
         <button class="tab tab-active" data-tab="claude-code">Claude Code (CLI)</button>
         <button class="tab" data-tab="cursor">Cursor</button>
-        <button class="tab" data-tab="vscode">VS Code</button>
+        <button class="tab" data-tab="vscode">VS Code + Copilot</button>
         <button class="tab" data-tab="claude-desktop">Claude Desktop</button>
         <button class="tab" data-tab="windsurf">Windsurf</button>
         <button class="tab" data-tab="zed">Zed</button>
@@ -125,6 +125,7 @@
 }</code></pre>
         </div>
         <p class="hint">Or via Command Palette → <em>MCP: Add Server</em> → npm package → <code>omni-notify-mcp</code>.</p>
+        <p class="hint"><strong>Important for GitHub Copilot Chat/Agent:</strong> Copilot can miss server-pushed notifications. For reliable inbound user messages, the agent should loop on <code>wait_for_inbox(timeout_seconds=50)</code> and handle tool results immediately.</p>
       </div>
 
       <!-- Claude Desktop -->
@@ -230,16 +231,18 @@
 
     <section class="help-section">
       <h2>What the AI gets</h2>
-      <p>Six tools, all server-configured. The agent never names a channel — it just calls <code>notify</code>/<code>ask</code> and your settings decide where it goes:</p>
+      <p>Eight tools, all server-configured. The agent never names a channel — it just calls <code>notify</code>/<code>ask</code> and your settings decide where it goes:</p>
       <table class="tools-table">
         <tr><td><code>notify</code></td><td>Send a message. <code>priority=low|normal|high</code> controls fan-out and bypasses DND when high.</td></tr>
         <tr><td><code>ask</code></td><td>Send a question and <strong>wait for your reply</strong> (Telegram or email link).</td></tr>
         <tr><td><code>poll</code></td><td>Drain unsolicited messages you sent the agent.</td></tr>
+        <tr><td><code>wait_for_inbox</code></td><td>Long-poll up to 50s and return immediately when a new inbound user message exists.</td></tr>
         <tr><td><code>get_idle_seconds</code></td><td>Seconds since your last keyboard/mouse input.</td></tr>
         <tr><td><code>get_idle_config</code></td><td>The server's idle-gating policy.</td></tr>
         <tr><td><code>get_dnd_status</code></td><td>Whether Do Not Disturb is currently suppressing.</td></tr>
+        <tr><td><code>reply</code></td><td>Channel return-path for stdio clients that support pushed channel events.</td></tr>
       </table>
-      <p class="hint">Well-behaved agents pre-flight with <code>get_idle_seconds</code> and skip the notif entirely if you're at the keyboard. The MCP <code>instructions</code> field tells every connecting client this — no per-prompt prodding required.</p>
+      <p class="hint">For Copilot, treat <code>wait_for_inbox</code> as the primary inbound path. Keep a tight loop and process every non-empty result before continuing long tasks.</p>
     </section>
 
     <section class="help-section">
